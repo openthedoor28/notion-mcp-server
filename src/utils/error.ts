@@ -85,14 +85,13 @@ function getErrorMessage(
 }
 
 /**
- * Handles a Notion API error and returns a spec-compliant CallToolResult
- * with isError: true. Per MCP spec, tool execution errors are surfaced
- * via isError + a text content block describing the failure; the JSON-RPC
- * error envelope is reserved for protocol-level errors.
+ * Per MCP spec, tool execution errors are surfaced via isError: true and a
+ * text content block; the JSON-RPC error envelope is reserved for
+ * protocol-level errors only.
  */
 export function handleNotionError(error: unknown): CallToolResult {
   if (error instanceof APIResponseError) {
-    const code = error.code as string;
+    const code = error.code;
     const message = getErrorMessage(code, error.message);
     return {
       isError: true,
