@@ -4,6 +4,7 @@ import { server } from "../server/index.js";
 import { initOperations, getOperation, listOperations, operationNames } from "../operations/index.js";
 import { dispatch } from "../dispatch/index.js";
 import { emitJsonSchema } from "../schema/emit.js";
+import { registerAllPrompts } from "../prompts/index.js";
 
 function jsonContent(value: unknown): CallToolResult {
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
@@ -125,6 +126,8 @@ export async function registerAllTools(): Promise<void> {
       ],
     })
   );
+
+  registerAllPrompts();
 }
 
 function renderOperationsIndex(): string {

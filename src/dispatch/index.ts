@@ -9,10 +9,13 @@ import type {
 } from "../operations/types.js";
 import { buildKey, lookup, store } from "./idempotency.js";
 import { mapWithConcurrency } from "./concurrency.js";
+import { rateLimiter } from "./rate-limit.js";
+import { isRetryableErrorCode, withRetry } from "./retry.js";
 import { buildValidationError } from "../utils/learning-error.js";
 import { toErrorEnvelope } from "../utils/error.js";
 
 const DEFAULT_CONCURRENCY = 3;
+const MAX_CONCURRENCY = 10;
 
 type RawPayload = unknown;
 
@@ -65,6 +68,22 @@ export async function dispatch(
   return runSingle(def, payload);
 }
 
+// Run the handler under the shared rate limiter, retrying on transient SDK
+// failures. Token is acquired inside withRetry so each retry attempt counts
+// against the per-second budget instead of bursting on retry storms.
+function runHandlerWithLimitAndRetry(
+  def: OperationDef,
+  params: unknown
+): Promise<OperationResult> {
+  return withRetry(
+    async () => {
+      await rateLimiter.acquire();
+      return def.handler(params);
+    },
+    { isRetryableResult: (r) => r.ok === false && isRetryableErrorCode(r.error.code) }
+  );
+}
+
 async function runSingle(
   def: OperationDef,
   payload: RawPayload
@@ -74,7 +93,7 @@ async function runSingle(
     return { ok: false, error: buildValidationError(def, parsed.error) };
   }
   try {
-    return await def.handler(parsed.data);
+    return await runHandlerWithLimitAndRetry(def, parsed.data);
   } catch (error) {
     return { ok: false, error: toErrorEnvelope(error) };
   }
@@ -90,12 +109,14 @@ async function runBatch(
     if (cached) return cached as BatchResult;
   }
 
-  const concurrency = Math.max(
-    1,
-    Math.min(payload.concurrency ?? DEFAULT_CONCURRENCY, 10)
-  );
-  const items = payload.items;
   const atomic = payload.atomic === true;
+  // Atomic mode requires serial execution: with concurrency > 1, the `aborted`
+  // flag is set only after the first failure resolves, but other workers have
+  // already started in-flight requests, so later items execute when they
+  // shouldn't. Force concurrency=1 to make the abort barrier reliable.
+  const requested = payload.concurrency ?? DEFAULT_CONCURRENCY;
+  const concurrency = atomic ? 1 : Math.max(1, Math.min(requested, MAX_CONCURRENCY));
+  const items = payload.items;
   const createdForRollback: { item: BatchItemResult }[] = [];
 
   let aborted = false;
@@ -123,7 +144,7 @@ async function runBatch(
     }
 
     try {
-      const result = await def.handler(parsed.data);
+      const result = await runHandlerWithLimitAndRetry(def, parsed.data);
       if (result.ok) {
         const success: BatchItemResult = { index, ok: true, data: result.data };
         if (atomic && def.rollback) createdForRollback.push({ item: success });
@@ -178,7 +199,7 @@ async function runBatch(
   return batchResult;
 }
 
-export const BATCH_ENVELOPE_HELP = `Batch mode: pass { items: [...], atomic?: boolean, idempotency_key?: string, concurrency?: 1-10 }. Each item is validated independently; failures are reported per-item. atomic:true triggers best-effort rollback of created entities on first failure.`;
+export const BATCH_ENVELOPE_HELP = `Batch mode: pass { items: [...], atomic?: boolean, idempotency_key?: string, concurrency?: 1-10 }. Each item is validated independently; failures are reported per-item. atomic:true forces serial execution (concurrency=1) and triggers best-effort rollback of created entities on first failure; subsequent items are skipped with code:"aborted".`;
 
 export const _internal = { isBatchPayload };
 

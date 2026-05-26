@@ -1,8 +1,11 @@
 import { z } from "zod";
+import { isFullDatabase } from "@notionhq/client";
 import { getClient } from "../services/notion.js";
 import { register } from "./registry.js";
-import { toErrorEnvelope } from "../utils/error.js";
+import { tryHandler } from "../utils/handler.js";
+import { slimDataSource } from "../utils/slim.js";
 import { DATABASE_PROPERTY_SCHEMA } from "../schema/database.js";
+import { asSdk, type UpdateDataSourceBody } from "../utils/notion-types.js";
 
 const VERBOSE = z.boolean().optional();
 
@@ -17,25 +20,21 @@ register({
   batchable: false,
   schema: ListDataSourcesParams,
   example: { database_id: "<database-id>" },
-  handler: async ({ database_id, verbose }) => {
-    try {
-      const notion = await getClient();
-      const db = await notion.databases.retrieve({ database_id });
-      const sources = (db as { data_sources?: Array<{ id: string; name?: string }> }).data_sources ?? [];
-      return {
-        ok: true,
-        data: verbose
-          ? { database_id, data_sources: sources }
-          : {
-              database_id,
-              count: sources.length,
-              data_sources: sources.map((s) => ({ id: s.id, name: s.name })),
-            },
-      };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ database_id, verbose }) => {
+    const notion = await getClient();
+    const db = await notion.databases.retrieve({ database_id });
+    const sources = isFullDatabase(db) ? db.data_sources : [];
+    return {
+      ok: true,
+      data: verbose
+        ? { database_id, data_sources: sources }
+        : {
+            database_id,
+            count: sources.length,
+            data_sources: sources.map((s) => ({ id: s.id, name: s.name })),
+          },
+    };
+  }),
 });
 
 const GetDataSourceParams = z.object({
@@ -50,22 +49,11 @@ register({
   schema: GetDataSourceParams,
   example: { data_source_id: "<data-source-id>" },
   exampleBatch: { items: [{ data_source_id: "<ds-1>" }, { data_source_id: "<ds-2>" }] },
-  handler: async ({ data_source_id, verbose }): Promise<{ ok: true; data: unknown } | { ok: false; error: ReturnType<typeof toErrorEnvelope> }> => {
-    try {
-      const notion = await getClient();
-      const ds = await notion.dataSources.retrieve({ data_source_id });
-      if (verbose) return { ok: true, data: ds };
-      const slim = {
-        id: (ds as { id: string }).id,
-        parent: (ds as { parent: unknown }).parent,
-        name: (ds as { name?: string }).name,
-        properties: Object.keys((ds as { properties?: Record<string, unknown> }).properties ?? {}),
-      };
-      return { ok: true, data: slim };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ data_source_id, verbose }) => {
+    const notion = await getClient();
+    const ds = await notion.dataSources.retrieve({ data_source_id });
+    return { ok: true, data: slimDataSource(ds, verbose ?? false) };
+  }),
 });
 
 const UpdateDataSourceParams = z.object({
@@ -89,20 +77,17 @@ register({
       Status: { type: "status", status: { options: [] } },
     },
   },
-  handler: async ({ data_source_id, title, properties, icon, archived, in_trash, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.dataSources.update({
-        data_source_id,
-        ...(title !== undefined ? { title: title as never } : {}),
-        ...(properties !== undefined ? { properties: properties as never } : {}),
-        ...(icon !== undefined ? { icon: icon as never } : {}),
-        ...(archived !== undefined ? { archived } : {}),
-        ...(in_trash !== undefined ? { in_trash } : {}),
-      } as never);
-      return { ok: true, data: verbose ? response : { id: (response as { id: string }).id } };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ data_source_id, title, properties, icon, archived, in_trash, verbose }) => {
+    const notion = await getClient();
+    const body = {
+      data_source_id,
+      ...(title !== undefined ? { title } : {}),
+      ...(properties !== undefined ? { properties } : {}),
+      ...(icon !== undefined ? { icon } : {}),
+      ...(archived !== undefined ? { archived } : {}),
+      ...(in_trash !== undefined ? { in_trash } : {}),
+    };
+    const response = await notion.dataSources.update(asSdk<UpdateDataSourceBody>(body));
+    return { ok: true, data: slimDataSource(response, verbose ?? false) };
+  }),
 });

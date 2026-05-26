@@ -6,6 +6,7 @@ export type OperationName =
   | "set_page_property"
   | "set_page_properties"
   | "archive_page"
+  | "trash_page"
   | "restore_page"
   | "search_pages"
   | "get_page"
@@ -32,7 +33,10 @@ export type OperationName =
   | "delete_comment"
   | "list_users"
   | "get_user"
-  | "get_bot_user";
+  | "get_bot_user"
+  | "upload_file"
+  | "list_file_uploads"
+  | "get_file_upload";
 
 export type OperationResult<T = unknown> =
   | { ok: true; data: T }

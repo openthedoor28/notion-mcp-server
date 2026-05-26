@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { RICH_TEXT_ITEM_REQUEST_SCHEMA } from "./rich-text.js";
 import { PARENT_SCHEMA } from "./page.js";
 import { ICON_SCHEMA } from "./icon.js";
@@ -12,7 +11,7 @@ import { registerSharedRef } from "./emit.js";
  */
 export function registerSharedSubSchemas(): void {
   registerSharedRef("rich_text_item", RICH_TEXT_ITEM_REQUEST_SCHEMA);
-  registerSharedRef("parent", PARENT_SCHEMA as unknown as z.ZodType<unknown>);
+  registerSharedRef("parent", PARENT_SCHEMA);
   registerSharedRef("icon", ICON_SCHEMA);
   registerSharedRef("file", FILE_SCHEMA);
 }

@@ -1,10 +1,16 @@
 import { z } from "zod";
 import { getClient } from "../services/notion.js";
 import { register } from "./registry.js";
-import { toErrorEnvelope } from "../utils/error.js";
+import { tryHandler } from "../utils/handler.js";
 import { slimBlock, slimList } from "../utils/slim.js";
 import { parseMarkdownToBlocks } from "../markdown/parse.js";
 import { TEXT_BLOCK_REQUEST_SCHEMA } from "../schema/blocks.js";
+import {
+  asSdk,
+  type AppendBlockBody,
+  type AppendBlockChildren,
+  type UpdateBlockBody,
+} from "../utils/notion-types.js";
 
 const VERBOSE = z.boolean().optional();
 
@@ -43,40 +49,40 @@ register({
       { block_id: "<page-id-2>", markdown: "Body 2" },
     ],
   },
-  handler: async ({ block_id, markdown, children, after, position, verbose }) => {
-    try {
-      const blocks = markdown ? parseMarkdownToBlocks(markdown) : children!;
-      if (blocks.length === 0) {
-        return {
-          ok: false,
-          error: {
-            code: "empty_content",
-            message: "No blocks to append (markdown parsed to empty, or children array is empty).",
-          },
-        };
-      }
-      const positionArg = position
-        ? { type: position }
-        : after
-          ? { type: "after_block" as const, after_block: { id: after } }
-          : undefined;
-      const notion = await getClient();
-      const response = await notion.blocks.children.append({
-        block_id,
-        children: blocks as never,
-        ...(positionArg ? { position: positionArg } : {}),
-      } as never);
+  handler: tryHandler(async ({ block_id, markdown, children, after, position, verbose }) => {
+    const blocks = markdown ? parseMarkdownToBlocks(markdown) : (children ?? []);
+    if (blocks.length === 0) {
       return {
-        ok: true,
-        data: {
-          appended: response.results.length,
-          results: response.results.map((r) => slimBlock(r, verbose ?? false)),
+        ok: false,
+        error: {
+          code: "empty_content",
+          message: "No blocks to append (markdown parsed to empty, or children array is empty).",
         },
       };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
     }
-  },
+    const positionArg = position
+      ? { type: position }
+      : after
+        ? { type: "after_block" as const, after_block: { id: after } }
+        : undefined;
+    const notion = await getClient();
+    const body = {
+      block_id,
+      children: asSdk<AppendBlockChildren>(blocks),
+      ...(positionArg ? { position: positionArg } : {}),
+    };
+    const response = await notion.blocks.children.append(asSdk<AppendBlockBody>(body));
+    return {
+      ok: true,
+      data: {
+        // Trust the input length over response.results.length: the API
+        // returns the updated child set for `position: "start"`, not just
+        // the newly appended blocks.
+        appended: blocks.length,
+        results: response.results.map((r) => slimBlock(r, verbose ?? false)),
+      },
+    };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -97,15 +103,11 @@ register({
   exampleBatch: {
     items: [{ block_id: "<block-id-1>" }, { block_id: "<block-id-2>" }],
   },
-  handler: async ({ block_id, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.blocks.retrieve({ block_id });
-      return { ok: true, data: slimBlock(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ block_id, verbose }) => {
+    const notion = await getClient();
+    const response = await notion.blocks.retrieve({ block_id });
+    return { ok: true, data: slimBlock(response, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -125,27 +127,26 @@ register({
   batchable: false,
   schema: GetBlockChildrenParams,
   example: { block_id: "<page-id>", page_size: 100 },
-  handler: async ({ block_id, start_cursor, page_size, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.blocks.children.list({
-        block_id,
-        start_cursor,
-        page_size: page_size ?? 100,
-      });
-      return {
-        ok: true,
-        data: slimList(response, slimBlock, verbose ?? false),
-      };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ block_id, start_cursor, page_size, verbose }) => {
+    const notion = await getClient();
+    const response = await notion.blocks.children.list({
+      block_id,
+      start_cursor,
+      page_size: page_size ?? 100,
+    });
+    return { ok: true, data: slimList(response, slimBlock, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
 // update_block
 // ──────────────────────────────────────────────────────────────────────────
+
+type BlockTypedBody = { type: string; [key: string]: unknown };
+
+function extractTypedBody(block: BlockTypedBody): Record<string, unknown> {
+  return { [block.type]: block[block.type] };
+}
 
 const UpdateBlockParams = z
   .object({
@@ -175,39 +176,30 @@ register({
       { block_id: "<block-id-2>", markdown: "Second update." },
     ],
   },
-  handler: async ({ block_id, markdown, data, verbose }) => {
-    try {
-      let body: Record<string, unknown>;
-      if (markdown) {
-        const parsed = parseMarkdownToBlocks(markdown);
-        if (parsed.length !== 1) {
-          return {
-            ok: false,
-            error: {
-              code: "markdown_multiblock",
-              message: `Update requires exactly one block; markdown parsed to ${parsed.length}.`,
-              fix: "Use append_blocks for multi-block content, or shorten markdown to a single block.",
-            },
-          };
-        }
-        const block = parsed[0] as Record<string, unknown>;
-        const type = block.type as string;
-        body = { [type]: block[type] };
-      } else {
-        const block = data as Record<string, unknown>;
-        const type = block.type as string;
-        body = { [type]: block[type] };
+  handler: tryHandler(async ({ block_id, markdown, data, verbose }) => {
+    let body: Record<string, unknown>;
+    if (markdown) {
+      const parsed = parseMarkdownToBlocks(markdown);
+      if (parsed.length !== 1) {
+        return {
+          ok: false,
+          error: {
+            code: "markdown_multiblock",
+            message: `Update requires exactly one block; markdown parsed to ${parsed.length}.`,
+            fix: "Use append_blocks for multi-block content, or shorten markdown to a single block.",
+          },
+        };
       }
-      const notion = await getClient();
-      const response = await notion.blocks.update({
-        block_id,
-        ...body,
-      } as never);
-      return { ok: true, data: slimBlock(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
+      body = extractTypedBody(parsed[0] as BlockTypedBody);
+    } else {
+      body = extractTypedBody(data as BlockTypedBody);
     }
-  },
+    const notion = await getClient();
+    const response = await notion.blocks.update(
+      asSdk<UpdateBlockBody>({ block_id, ...body })
+    );
+    return { ok: true, data: slimBlock(response, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -223,15 +215,11 @@ register({
   schema: DeleteBlockParams,
   example: { block_id: "<block-id>" },
   exampleBatch: { items: [{ block_id: "<block-id-1>" }, { block_id: "<block-id-2>" }] },
-  handler: async ({ block_id, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.blocks.delete({ block_id });
-      return { ok: true, data: slimBlock(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ block_id, verbose }) => {
+    const notion = await getClient();
+    const response = await notion.blocks.delete({ block_id });
+    return { ok: true, data: slimBlock(response, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -274,45 +262,41 @@ register({
       { op: "delete", block_id: "<other-block-id>" },
     ],
   },
-  handler: async ({ operations, verbose }) => {
-    try {
-      const notion = await getClient();
-      const results = [];
-      for (const op of operations) {
-        if (op.op === "append") {
-          const blocks = op.markdown
-            ? parseMarkdownToBlocks(op.markdown)
-            : (op.children ?? []);
-          const r = await notion.blocks.children.append({
+  handler: tryHandler(async ({ operations, verbose }) => {
+    const notion = await getClient();
+    const results: Array<Record<string, unknown>> = [];
+    for (const op of operations) {
+      if (op.op === "append") {
+        const blocks = op.markdown
+          ? parseMarkdownToBlocks(op.markdown)
+          : (op.children ?? []);
+        const r = await notion.blocks.children.append(
+          asSdk<AppendBlockBody>({
             block_id: op.block_id,
-            children: blocks as never,
-          });
-          results.push({ op: "append", appended: r.results.length });
-        } else if (op.op === "update") {
-          let body: Record<string, unknown>;
-          if (op.markdown) {
-            const parsed = parseMarkdownToBlocks(op.markdown);
-            if (parsed.length !== 1) throw new Error("update markdown must be a single block");
-            const block = parsed[0] as Record<string, unknown>;
-            const type = block.type as string;
-            body = { [type]: block[type] };
-          } else if (op.data) {
-            const block = op.data as Record<string, unknown>;
-            const type = block.type as string;
-            body = { [type]: block[type] };
-          } else {
-            throw new Error("update requires markdown or data");
-          }
-          const r = await notion.blocks.update({ block_id: op.block_id, ...body } as never);
-          results.push({ op: "update", block: slimBlock(r, verbose ?? false) });
+            children: asSdk<AppendBlockChildren>(blocks),
+          })
+        );
+        results.push({ op: "append", appended: blocks.length, results: r.results.map((x) => slimBlock(x, verbose ?? false)) });
+      } else if (op.op === "update") {
+        let body: Record<string, unknown>;
+        if (op.markdown) {
+          const parsed = parseMarkdownToBlocks(op.markdown);
+          if (parsed.length !== 1) throw new Error("update markdown must be a single block");
+          body = extractTypedBody(parsed[0] as BlockTypedBody);
+        } else if (op.data) {
+          body = extractTypedBody(op.data as BlockTypedBody);
         } else {
-          const r = await notion.blocks.delete({ block_id: op.block_id });
-          results.push({ op: "delete", block: slimBlock(r, verbose ?? false) });
+          throw new Error("update requires markdown or data");
         }
+        const r = await notion.blocks.update(
+          asSdk<UpdateBlockBody>({ block_id: op.block_id, ...body })
+        );
+        results.push({ op: "update", block: slimBlock(r, verbose ?? false) });
+      } else {
+        const r = await notion.blocks.delete({ block_id: op.block_id });
+        results.push({ op: "delete", block: slimBlock(r, verbose ?? false) });
       }
-      return { ok: true, data: { count: results.length, results } };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
     }
-  },
+    return { ok: true, data: { count: results.length, results } };
+  }),
 });

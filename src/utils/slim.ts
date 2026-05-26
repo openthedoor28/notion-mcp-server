@@ -1,141 +1,208 @@
-type Any = Record<string, unknown>;
+import {
+  isFullBlock,
+  isFullComment,
+  isFullDatabase,
+  isFullDataSource,
+  isFullPage,
+  isFullUser,
+} from "@notionhq/client";
+import type {
+  BlockObjectResponse,
+  CommentObjectResponse,
+  DatabaseObjectResponse,
+  DataSourceObjectResponse,
+  FileUploadObjectResponse,
+  PageObjectResponse,
+  PartialBlockObjectResponse,
+  PartialCommentObjectResponse,
+  PartialDatabaseObjectResponse,
+  PartialDataSourceObjectResponse,
+  PartialPageObjectResponse,
+  PartialUserObjectResponse,
+  RichTextItemResponse,
+  UserObjectResponse,
+} from "@notionhq/client";
 
-function extractRichText(rich: unknown): string {
-  if (!Array.isArray(rich)) return "";
-  return rich
-    .map((r) => {
-      if (typeof r !== "object" || r === null) return "";
-      const obj = r as Any;
-      if (typeof obj.plain_text === "string") return obj.plain_text;
-      const text = obj.text as Any | undefined;
-      if (text && typeof text.content === "string") return text.content;
-      return "";
-    })
-    .join("");
+export type PageResponse = PageObjectResponse | PartialPageObjectResponse;
+export type BlockResponse = BlockObjectResponse | PartialBlockObjectResponse;
+export type DatabaseResponse =
+  | DatabaseObjectResponse
+  | PartialDatabaseObjectResponse;
+export type DataSourceResponse =
+  | DataSourceObjectResponse
+  | PartialDataSourceObjectResponse;
+export type UserResponse = UserObjectResponse | PartialUserObjectResponse;
+export type CommentResponse =
+  | CommentObjectResponse
+  | PartialCommentObjectResponse;
+
+export type SearchItemResponse = PageResponse | DatabaseResponse | DataSourceResponse;
+
+function extractRichText(rich: readonly RichTextItemResponse[]): string {
+  return rich.map((r) => r.plain_text).join("");
 }
 
-function extractTitle(properties: unknown): string | undefined {
-  if (typeof properties !== "object" || properties === null) return undefined;
-  for (const value of Object.values(properties as Any)) {
-    if (typeof value !== "object" || value === null) continue;
-    const prop = value as Any;
-    if (prop.type === "title" && Array.isArray(prop.title)) {
-      return extractRichText(prop.title);
-    }
+function extractTitle(
+  properties: PageObjectResponse["properties"]
+): string | undefined {
+  for (const value of Object.values(properties)) {
+    if (value.type === "title") return extractRichText(value.title);
   }
   return undefined;
 }
 
-export function slimPage(page: unknown, verbose = false): unknown {
+export function slimPage(page: PageResponse, verbose = false) {
   if (verbose) return page;
-  if (typeof page !== "object" || page === null) return page;
-  const p = page as Any;
+  if (!isFullPage(page)) return { id: page.id };
   return {
-    id: p.id,
-    url: p.url,
-    title: extractTitle(p.properties),
-    parent: p.parent,
-    archived: (p.archived as boolean | undefined) ?? (p.in_trash as boolean | undefined) ?? false,
-    in_trash: (p.in_trash as boolean | undefined) ?? (p.archived as boolean | undefined) ?? false,
-    icon: typeof p.icon === "object" && p.icon !== null ? (p.icon as Any).type : null,
-    created_time: p.created_time,
-    last_edited_time: p.last_edited_time,
+    id: page.id,
+    url: page.url,
+    title: extractTitle(page.properties),
+    parent: page.parent,
+    archived: page.in_trash,
+    in_trash: page.in_trash,
+    icon: page.icon ? page.icon.type : null,
+    created_time: page.created_time,
+    last_edited_time: page.last_edited_time,
   };
 }
 
-export function slimBlock(block: unknown, verbose = false): unknown {
+export function slimBlock(block: BlockResponse, verbose = false) {
   if (verbose) return block;
-  if (typeof block !== "object" || block === null) return block;
-  const b = block as Any;
-  const type = typeof b.type === "string" ? b.type : "";
-  const inner = type ? (b[type] as Any | undefined) : undefined;
-  let text: string | undefined;
-  if (inner && Array.isArray(inner.rich_text)) text = extractRichText(inner.rich_text);
-  return {
-    id: b.id,
-    type,
-    text,
-    has_children: b.has_children,
-    archived: (b.archived as boolean | undefined) ?? (b.in_trash as boolean | undefined) ?? false,
-    in_trash: (b.in_trash as boolean | undefined) ?? (b.archived as boolean | undefined) ?? false,
-    ...(type === "to_do" && inner && typeof inner.checked === "boolean"
-      ? { checked: inner.checked }
-      : {}),
-    ...(type === "code" && inner && typeof inner.language === "string"
-      ? { language: inner.language }
-      : {}),
-    ...(type === "image" && inner
-      ? { image: (inner.external as Any | undefined)?.url ?? (inner.file as Any | undefined)?.url }
-      : {}),
+  if (!isFullBlock(block)) return { id: block.id };
+
+  const base = {
+    id: block.id,
+    type: block.type,
+    text: extractBlockText(block),
+    has_children: block.has_children,
+    archived: block.in_trash,
+    in_trash: block.in_trash,
   };
+
+  if (block.type === "to_do") {
+    return { ...base, checked: block.to_do.checked };
+  }
+  if (block.type === "code") {
+    return { ...base, language: block.code.language };
+  }
+  if (block.type === "image") {
+    const img = block.image;
+    const url = img.type === "external" ? img.external.url : img.file.url;
+    return { ...base, image: url };
+  }
+  return base;
 }
 
-export function slimDatabase(db: unknown, verbose = false): unknown {
+function extractBlockText(block: BlockObjectResponse): string | undefined {
+  // Many block subtypes expose a `rich_text` array under their type key.
+  // Read it via a structural narrow so we don't have to enumerate every variant.
+  const inner = (block as unknown as Record<string, unknown>)[block.type];
+  if (typeof inner !== "object" || inner === null) return undefined;
+  const richText = (inner as { rich_text?: unknown }).rich_text;
+  if (!Array.isArray(richText)) return undefined;
+  return extractRichText(richText as RichTextItemResponse[]);
+}
+
+export function slimDatabase(db: DatabaseResponse, verbose = false) {
   if (verbose) return db;
-  if (typeof db !== "object" || db === null) return db;
-  const d = db as Any;
-  const props = d.properties as Any | undefined;
+  if (!isFullDatabase(db)) return { id: db.id };
   return {
-    id: d.id,
-    url: d.url,
-    title: Array.isArray(d.title) ? extractRichText(d.title) : undefined,
-    description: Array.isArray(d.description) ? extractRichText(d.description) : undefined,
-    parent: d.parent,
-    archived: (d.archived as boolean | undefined) ?? (d.in_trash as boolean | undefined) ?? false,
-    in_trash: (d.in_trash as boolean | undefined) ?? (d.archived as boolean | undefined) ?? false,
-    is_inline: d.is_inline,
-    properties: props
-      ? Object.fromEntries(
-          Object.entries(props).map(([k, v]) => {
-            const pv = v as Any;
-            return [k, { type: pv.type, name: pv.name }];
-          })
-        )
-      : {},
-    created_time: d.created_time,
-    last_edited_time: d.last_edited_time,
+    id: db.id,
+    url: db.url,
+    title: extractRichText(db.title),
+    description: extractRichText(db.description),
+    parent: db.parent,
+    archived: db.in_trash,
+    in_trash: db.in_trash,
+    is_inline: db.is_inline,
+    is_locked: db.is_locked,
+    data_sources: db.data_sources.map((s) => ({ id: s.id, name: s.name })),
+    icon: db.icon ? db.icon.type : null,
+    created_time: db.created_time,
+    last_edited_time: db.last_edited_time,
   };
 }
 
-export function slimUser(user: unknown, verbose = false): unknown {
+export function slimDataSource(ds: DataSourceResponse, verbose = false) {
+  if (verbose) return ds;
+  if (!isFullDataSource(ds)) return { id: ds.id };
+  return {
+    id: ds.id,
+    url: ds.url,
+    title: extractRichText(ds.title),
+    description: extractRichText(ds.description),
+    parent: ds.parent,
+    properties: Object.keys(ds.properties),
+    icon: ds.icon ? ds.icon.type : null,
+    archived: ds.in_trash,
+    in_trash: ds.in_trash,
+    created_time: ds.created_time,
+    last_edited_time: ds.last_edited_time,
+  };
+}
+
+export function slimItem(item: SearchItemResponse, verbose = false) {
+  if (verbose) return item;
+  if (item.object === "page") return slimPage(item, verbose);
+  if (item.object === "database") return slimDatabase(item, verbose);
+  return slimDataSource(item, verbose);
+}
+
+export function slimUser(user: UserResponse, verbose = false) {
   if (verbose) return user;
-  if (typeof user !== "object" || user === null) return user;
-  const u = user as Any;
+  if (!isFullUser(user)) return { id: user.id };
+  const base = {
+    id: user.id,
+    type: user.type,
+    name: user.name,
+    avatar_url: user.avatar_url,
+  };
+  if (user.type === "person") return { ...base, email: user.person.email };
+  if (user.type === "bot") {
+    const workspaceName =
+      "workspace_name" in user.bot ? user.bot.workspace_name : undefined;
+    return { ...base, workspace_name: workspaceName };
+  }
+  return base;
+}
+
+export function slimFileUpload(fu: FileUploadObjectResponse, verbose = false) {
+  if (verbose) return fu;
   return {
-    id: u.id,
-    type: u.type,
-    name: u.name,
-    avatar_url: u.avatar_url,
-    ...(u.type === "person" && typeof u.person === "object" && u.person !== null
-      ? { email: (u.person as Any).email }
+    file_upload_id: fu.id,
+    status: fu.status ?? null,
+    ...(fu.filename ? { filename: fu.filename } : {}),
+    ...(fu.content_type ? { content_type: fu.content_type } : {}),
+    ...(fu.content_length !== undefined && fu.content_length !== null
+      ? { content_length: fu.content_length }
       : {}),
-    ...(u.type === "bot" && typeof u.bot === "object" && u.bot !== null
-      ? { workspace_name: (u.bot as Any).workspace_name }
-      : {}),
+    ...(fu.expiry_time ? { expiry_time: fu.expiry_time } : {}),
   };
 }
 
-export function slimComment(comment: unknown, verbose = false): unknown {
+export function slimComment(comment: CommentResponse, verbose = false) {
   if (verbose) return comment;
-  if (typeof comment !== "object" || comment === null) return comment;
-  const c = comment as Any;
+  if (!isFullComment(comment)) return { id: comment.id };
   return {
-    id: c.id,
-    parent: c.parent,
-    discussion_id: c.discussion_id,
-    text: Array.isArray(c.rich_text) ? extractRichText(c.rich_text) : "",
-    created_by: typeof c.created_by === "object" && c.created_by !== null
-      ? (c.created_by as Any).id
-      : undefined,
-    created_time: c.created_time,
+    id: comment.id,
+    parent: comment.parent,
+    discussion_id: comment.discussion_id,
+    text: extractRichText(comment.rich_text),
+    created_by: comment.created_by.id,
+    created_time: comment.created_time,
   };
 }
 
-export function slimList<T>(
-  list: { results: unknown[]; has_more?: boolean; next_cursor?: string | null },
-  slim: (item: unknown, verbose?: boolean) => T,
+export function slimList<TInput, TOutput>(
+  list: {
+    results: TInput[];
+    has_more?: boolean;
+    next_cursor?: string | null;
+  },
+  slim: (item: TInput, verbose?: boolean) => TOutput,
   verbose = false
-): { results: T[]; has_more: boolean; next_cursor: string | null } {
+): { results: TOutput[]; has_more: boolean; next_cursor: string | null } {
   return {
     results: list.results.map((r) => slim(r, verbose)),
     has_more: list.has_more ?? false,

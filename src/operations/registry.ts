@@ -1,6 +1,8 @@
 import type { OperationDef, OperationName } from "./types.js";
 
-const registry = new Map<OperationName, OperationDef<any, any>>();
+type AnyOperationDef = OperationDef<unknown, unknown>;
+
+const registry = new Map<OperationName, AnyOperationDef>();
 
 export function register<TParams, TResult>(
   def: OperationDef<TParams, TResult>
@@ -8,14 +10,14 @@ export function register<TParams, TResult>(
   if (registry.has(def.name)) {
     throw new Error(`Operation already registered: ${def.name}`);
   }
-  registry.set(def.name, def as OperationDef<any, any>);
+  registry.set(def.name, def as AnyOperationDef);
 }
 
-export function getOperation(name: string): OperationDef<any, any> | undefined {
+export function getOperation(name: string): AnyOperationDef | undefined {
   return registry.get(name as OperationName);
 }
 
-export function listOperations(): OperationDef<any, any>[] {
+export function listOperations(): AnyOperationDef[] {
   return [...registry.values()];
 }
 

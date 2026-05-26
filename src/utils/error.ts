@@ -26,7 +26,26 @@ export enum NotionErrorCode {
   RateLimited = "rate_limited",
   InternalServerError = "internal_server_error",
   ServiceUnavailable = "service_unavailable",
+  GatewayTimeout = "gateway_timeout",
   DatabaseConnectionUnavailable = "database_connection_unavailable",
+}
+
+/**
+ * Codes that indicate a transient failure — the request either never ran or
+ * the server is asking us to back off. Safe to retry with exponential backoff.
+ * Shared by the dispatch retry wrapper and any caller that wants to classify
+ * an error envelope without re-encoding the same rules.
+ */
+export const RETRYABLE_NOTION_CODES: ReadonlySet<NotionErrorCode> = new Set([
+  NotionErrorCode.RateLimited,
+  NotionErrorCode.InternalServerError,
+  NotionErrorCode.ServiceUnavailable,
+  NotionErrorCode.GatewayTimeout,
+  NotionErrorCode.DatabaseConnectionUnavailable,
+]);
+
+export function isRetryableNotionCode(code: string | undefined): boolean {
+  return code !== undefined && (RETRYABLE_NOTION_CODES as ReadonlySet<string>).has(code);
 }
 
 type ErrorEntry = { message: string; fix?: string };
@@ -98,6 +117,10 @@ const ERROR_MESSAGES: Record<string, ErrorEntry> = {
   },
   [NotionErrorCode.ServiceUnavailable]: {
     message: "The Notion service is unavailable.",
+    fix: "Retry later with exponential backoff.",
+  },
+  [NotionErrorCode.GatewayTimeout]: {
+    message: "The Notion gateway timed out before the request could complete.",
     fix: "Retry later with exponential backoff.",
   },
   [NotionErrorCode.DatabaseConnectionUnavailable]: {

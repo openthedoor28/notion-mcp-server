@@ -1,13 +1,22 @@
 import { z } from "zod";
 import { getClient } from "../services/notion.js";
 import { register } from "./registry.js";
-import { toErrorEnvelope } from "../utils/error.js";
-import { slimPage, slimList } from "../utils/slim.js";
+import { tryHandler } from "../utils/handler.js";
+import { slimPage, slimItem, slimList } from "../utils/slim.js";
+import { paginateAll } from "../utils/paginate.js";
+import type { OperationResult } from "./types.js";
 import { parseMarkdownToBlocks } from "../markdown/parse.js";
 import { PARENT_SCHEMA } from "../schema/page.js";
 import { ICON_SCHEMA } from "../schema/icon.js";
 import { FILE_SCHEMA } from "../schema/file.js";
 import { RICH_TEXT_ITEM_REQUEST_SCHEMA } from "../schema/rich-text.js";
+import {
+  asSdk,
+  type CreatePageBody,
+  type MovePageBody,
+  type UpdatePageBody,
+  type UpdatePageMarkdownBody,
+} from "../utils/notion-types.js";
 import {
   CHECKBOX_PROPERTY_VALUE_SCHEMA,
   DATE_PROPERTY_VALUE_SCHEMA,
@@ -96,44 +105,41 @@ register({
     const id = (data as { id?: string }).id;
     if (!id) return;
     const notion = await getClient();
-    await notion.pages.update({ page_id: id, in_trash: true });
+    await notion.pages.update(asSdk<UpdatePageBody>({ page_id: id, in_trash: true }));
   },
-  handler: async (params) => {
-    try {
-      const parent = resolveParent(params.parent);
-      if (!parent) {
-        return {
-          ok: false,
-          error: {
-            code: "missing_parent",
-            message: "No parent specified and NOTION_PAGE_ID is not set.",
-            fix: "Pass `parent: {type:'page_id', page_id:'...'}` or set NOTION_PAGE_ID in the environment.",
-          },
-        };
-      }
-      const properties: Record<string, unknown> = { ...(params.properties ?? {}) };
-      if (params.title && !properties.title) {
-        properties.title = {
-          title: [{ type: "text", text: { content: params.title } }],
-        };
-      }
-      const children = params.markdown
-        ? parseMarkdownToBlocks(params.markdown)
-        : params.children;
-
-      const notion = await getClient();
-      const response = await notion.pages.create({
-        parent: parent as never,
-        properties: properties as never,
-        ...(children && children.length ? { children: children as never } : {}),
-        ...(params.icon !== undefined ? { icon: params.icon as never } : {}),
-        ...(params.cover !== undefined ? { cover: params.cover as never } : {}),
-      });
-      return { ok: true, data: slimPage(response, params.verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
+  handler: tryHandler(async (params) => {
+    const parent = resolveParent(params.parent);
+    if (!parent) {
+      return {
+        ok: false,
+        error: {
+          code: "missing_parent",
+          message: "No parent specified and NOTION_PAGE_ID is not set.",
+          fix: "Pass `parent: {type:'page_id', page_id:'...'}` or set NOTION_PAGE_ID in the environment.",
+        },
+      };
     }
-  },
+    const properties: Record<string, unknown> = { ...(params.properties ?? {}) };
+    if (params.title && !properties.title) {
+      properties.title = {
+        title: [{ type: "text", text: { content: params.title } }],
+      };
+    }
+    const children = params.markdown
+      ? parseMarkdownToBlocks(params.markdown)
+      : params.children;
+
+    const notion = await getClient();
+    const body = {
+      parent,
+      properties,
+      ...(children && children.length ? { children } : {}),
+      ...(params.icon !== undefined ? { icon: params.icon } : {}),
+      ...(params.cover !== undefined ? { cover: params.cover } : {}),
+    };
+    const response = await notion.pages.create(asSdk<CreatePageBody>(body));
+    return { ok: true, data: slimPage(response, params.verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -158,22 +164,18 @@ register({
       { page_id: "<page-id-2>", title: "Renamed 2" },
     ],
   },
-  handler: async ({ page_id, title, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.pages.update({
+  handler: tryHandler(async ({ page_id, title, verbose }) => {
+    const notion = await getClient();
+    const response = await notion.pages.update(
+      asSdk<UpdatePageBody>({
         page_id,
         properties: {
-          title: {
-            title: [{ type: "text", text: { content: title } }],
-          },
-        } as never,
-      });
-      return { ok: true, data: slimPage(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+          title: { title: [{ type: "text", text: { content: title } }] },
+        },
+      })
+    );
+    return { ok: true, data: slimPage(response, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -205,18 +207,13 @@ register({
       { page_id: "<page-id>", name: "Score", value: { number: 42 } },
     ],
   },
-  handler: async ({ page_id, name, value, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.pages.update({
-        page_id,
-        properties: { [name]: value } as never,
-      });
-      return { ok: true, data: slimPage(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ page_id, name, value, verbose }) => {
+    const notion = await getClient();
+    const response = await notion.pages.update(
+      asSdk<UpdatePageBody>({ page_id, properties: { [name]: value } })
+    );
+    return { ok: true, data: slimPage(response, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -258,18 +255,13 @@ register({
       },
     ],
   },
-  handler: async ({ page_id, properties, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.pages.update({
-        page_id,
-        properties: properties as never,
-      });
-      return { ok: true, data: slimPage(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ page_id, properties, verbose }) => {
+    const notion = await getClient();
+    const response = await notion.pages.update(
+      asSdk<UpdatePageBody>({ page_id, properties })
+    );
+    return { ok: true, data: slimPage(response, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -278,22 +270,32 @@ register({
 
 const PageIdParams = z.object({ page_id: z.string(), verbose: VERBOSE });
 
+const archivePageHandler = tryHandler(async ({ page_id, verbose }: z.infer<typeof PageIdParams>) => {
+  const notion = await getClient();
+  const response = await notion.pages.update(
+    asSdk<UpdatePageBody>({ page_id, in_trash: true })
+  );
+  return { ok: true as const, data: slimPage(response, verbose ?? false) };
+});
+
 register({
   name: "archive_page",
-  description: "Move a page to trash. Reversible via restore_page.",
+  description: "Move a page to trash. Reversible via restore_page. Alias: trash_page.",
   batchable: true,
   schema: PageIdParams,
   example: { page_id: "<page-id>" },
   exampleBatch: { items: [{ page_id: "<page-id-1>" }, { page_id: "<page-id-2>" }] },
-  handler: async ({ page_id, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.pages.update({ page_id, in_trash: true });
-      return { ok: true, data: slimPage(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: archivePageHandler,
+});
+
+register({
+  name: "trash_page",
+  description: "Alias of archive_page (2025-09-03 surface naming). Moves a page to trash.",
+  batchable: true,
+  schema: PageIdParams,
+  example: { page_id: "<page-id>" },
+  exampleBatch: { items: [{ page_id: "<page-id-1>" }, { page_id: "<page-id-2>" }] },
+  handler: archivePageHandler,
 });
 
 register({
@@ -302,15 +304,13 @@ register({
   batchable: true,
   schema: PageIdParams,
   example: { page_id: "<page-id>" },
-  handler: async ({ page_id, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.pages.update({ page_id, in_trash: false });
-      return { ok: true, data: slimPage(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ page_id, verbose }) => {
+    const notion = await getClient();
+    const response = await notion.pages.update(
+      asSdk<UpdatePageBody>({ page_id, in_trash: false })
+    );
+    return { ok: true, data: slimPage(response, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -322,34 +322,62 @@ const SearchPagesParams = z.object({
   sort_direction: z.enum(["ascending", "descending"]).optional(),
   page_size: z.number().min(1).max(100).optional(),
   start_cursor: z.string().optional(),
+  paginate: z
+    .boolean()
+    .optional()
+    .describe("Auto-walk all pages and return combined results. Ignores start_cursor when set."),
+  page_limit: z
+    .number()
+    .min(1)
+    .max(1000)
+    .optional()
+    .describe("Max pages to fetch when paginate=true (default 10, ~1000 items with page_size=100)."),
   verbose: VERBOSE,
 });
 
 register({
   name: "search_pages",
-  description: "Search pages and databases by title. Title-only; does NOT search page body content.",
+  description: "Search pages and databases by title. Title-only; does NOT search page body content. Pass paginate:true to auto-walk all pages.",
   batchable: false,
   schema: SearchPagesParams,
   example: { query: "smoke test", page_size: 10 },
-  handler: async ({ query, sort_direction, page_size, start_cursor, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.search({
-        query: query ?? "",
-        ...(sort_direction
-          ? { sort: { direction: sort_direction, timestamp: "last_edited_time" as const } }
-          : {}),
-        page_size: page_size ?? 10,
-        start_cursor,
-      });
+  handler: tryHandler(async ({ query, sort_direction, page_size, start_cursor, paginate, page_limit, verbose }): Promise<OperationResult> => {
+    const notion = await getClient();
+    const sort = sort_direction
+      ? { sort: { direction: sort_direction, timestamp: "last_edited_time" as const } }
+      : {};
+
+    if (paginate) {
+      const { results, truncated, pages_walked } = await paginateAll(
+        async (cursor) => {
+          const r = await notion.search({
+            query: query ?? "",
+            ...sort,
+            page_size: page_size ?? 100,
+            start_cursor: cursor,
+          });
+          return { results: r.results, has_more: r.has_more, next_cursor: r.next_cursor };
+        },
+        { limit: page_limit }
+      );
       return {
         ok: true,
-        data: slimList(response, slimPage, verbose ?? false),
+        data: {
+          results: results.map((item) => slimItem(item, verbose ?? false)),
+          truncated,
+          pages_walked,
+        },
       };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
     }
-  },
+
+    const response = await notion.search({
+      query: query ?? "",
+      ...sort,
+      page_size: page_size ?? 10,
+      start_cursor,
+    });
+    return { ok: true, data: slimList(response, slimItem, verbose ?? false) };
+  }),
 });
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -364,16 +392,16 @@ register({
   batchable: true,
   schema: GetPageParams,
   example: { page_id: "<page-id>" },
-  handler: async ({ page_id, verbose }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.pages.retrieve({ page_id });
-      return { ok: true, data: slimPage(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ page_id, verbose }) => {
+    const notion = await getClient();
+    const response = await notion.pages.retrieve({ page_id });
+    return { ok: true, data: slimPage(response, verbose ?? false) };
+  }),
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// move_page
+// ──────────────────────────────────────────────────────────────────────────
 
 const MovePageParams = z.object({
   page_id: z.string(),
@@ -396,32 +424,31 @@ register({
       { page_id: "<p2>", new_parent: { type: "page_id", page_id: "<dest>" } },
     ],
   },
-  handler: async ({ page_id, new_parent, verbose }) => {
-    try {
-      if (new_parent.type !== "page_id" && new_parent.type !== "data_source_id") {
-        return {
-          ok: false,
-          error: {
-            code: "unsupported_parent",
-            message: `move_page only accepts page_id or data_source_id, received ${new_parent.type}.`,
-            fix:
-              new_parent.type === "database_id"
-                ? "Call list_data_sources on the database and pass the resolved data_source_id."
-                : "Set new_parent.type to 'page_id' or 'data_source_id'.",
-          },
-        };
-      }
-      const notion = await getClient();
-      const response = await notion.pages.move({
-        page_id,
-        parent: new_parent as never,
-      } as never);
-      return { ok: true, data: slimPage(response, verbose ?? false) };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
+  handler: tryHandler(async ({ page_id, new_parent, verbose }) => {
+    if (new_parent.type !== "page_id" && new_parent.type !== "data_source_id") {
+      return {
+        ok: false,
+        error: {
+          code: "unsupported_parent",
+          message: `move_page only accepts page_id or data_source_id, received ${new_parent.type}.`,
+          fix:
+            new_parent.type === "database_id"
+              ? "Call list_data_sources on the database and pass the resolved data_source_id."
+              : "Set new_parent.type to 'page_id' or 'data_source_id'.",
+        },
+      };
     }
-  },
+    const notion = await getClient();
+    const response = await notion.pages.move(
+      asSdk<MovePageBody>({ page_id, parent: new_parent })
+    );
+    return { ok: true, data: slimPage(response, verbose ?? false) };
+  }),
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// get_page_markdown
+// ──────────────────────────────────────────────────────────────────────────
 
 const GetPageMarkdownParams = z.object({
   page_id: z.string(),
@@ -433,19 +460,16 @@ register({
   batchable: true,
   schema: GetPageMarkdownParams,
   example: { page_id: "<page-id>" },
-  handler: async ({ page_id }) => {
-    try {
-      const notion = await getClient();
-      const response = await notion.pages.retrieveMarkdown({ page_id });
-      return {
-        ok: true,
-        data: { page_id, markdown: (response as { markdown?: string }).markdown ?? "" },
-      };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ page_id }) => {
+    const notion = await getClient();
+    const response = await notion.pages.retrieveMarkdown({ page_id });
+    return { ok: true, data: { page_id, markdown: response.markdown ?? "" } };
+  }),
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// update_page_markdown
+// ──────────────────────────────────────────────────────────────────────────
 
 const UpdatePageMarkdownParams = z.object({
   page_id: z.string(),
@@ -472,34 +496,29 @@ register({
     markdown: "## Updated heading\n\nNew body.",
     allow_deleting_content: true,
   },
-  handler: async ({ page_id, markdown, insert_content, allow_deleting_content }) => {
-    try {
-      const notion = await getClient();
-      const body = insert_content
-        ? {
-            type: "insert_content" as const,
-            insert_content: {
-              content: markdown,
-              ...(insert_content.after ? { after: insert_content.after } : {}),
-              position: { type: insert_content.position },
-            },
-          }
-        : {
-            type: "replace_content" as const,
-            replace_content: {
-              new_str: markdown,
-              ...(allow_deleting_content !== undefined ? { allow_deleting_content } : {}),
-            },
-          };
-      const response = await notion.pages.updateMarkdown({
-        page_id,
-        ...body,
-      } as never);
-      return { ok: true, data: { page_id: (response as { id?: string }).id ?? page_id } };
-    } catch (error) {
-      return { ok: false, error: toErrorEnvelope(error) };
-    }
-  },
+  handler: tryHandler(async ({ page_id, markdown, insert_content, allow_deleting_content }) => {
+    const notion = await getClient();
+    const body = insert_content
+      ? {
+          page_id,
+          type: "insert_content" as const,
+          insert_content: {
+            content: markdown,
+            ...(insert_content.after ? { after: insert_content.after } : {}),
+            position: { type: insert_content.position },
+          },
+        }
+      : {
+          page_id,
+          type: "replace_content" as const,
+          replace_content: {
+            new_str: markdown,
+            ...(allow_deleting_content !== undefined ? { allow_deleting_content } : {}),
+          },
+        };
+    const response = await notion.pages.updateMarkdown(asSdk<UpdatePageMarkdownBody>(body));
+    return { ok: true, data: { page_id: response.id ?? page_id } };
+  }),
 });
 
 void RICH_TEXT_ITEM_REQUEST_SCHEMA;

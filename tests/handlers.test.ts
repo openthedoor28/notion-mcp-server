@@ -66,7 +66,7 @@ describe("query_database", () => {
   it("auto-resolves a single-source database via databases.retrieve", async () => {
     notionStub.databases.retrieve.mockImplementation(async (args) => {
       calls.push({ method: "databases.retrieve", args });
-      return { id: "db-1", data_sources: [{ id: "ds-only" }] };
+      return { object: "database", id: "db-1", data_sources: [{ id: "ds-only", name: "S" }] };
     });
     notionStub.dataSources.query.mockImplementation(async (args) => {
       calls.push({ method: "dataSources.query", args });
@@ -85,8 +85,9 @@ describe("query_database", () => {
 
   it("returns multi_source_database envelope with available IDs in fix", async () => {
     notionStub.databases.retrieve.mockResolvedValue({
+      object: "database",
       id: "db-2",
-      data_sources: [{ id: "ds-a" }, { id: "ds-b" }],
+      data_sources: [{ id: "ds-a", name: "A" }, { id: "ds-b", name: "B" }],
     });
 
     const res = await dispatch("query_database", { database_id: "db-2" });
@@ -139,6 +140,103 @@ describe("query_database", () => {
     expect((res as { ok: boolean }).ok).toBe(false);
     expect((res as { error: { code: string } }).error.code).toBe("validation_error");
   });
+
+  it("translates `where` DSL into a Notion filter before hitting the SDK", async () => {
+    notionStub.dataSources.query.mockImplementation(async (args) => {
+      calls.push({ method: "dataSources.query", args });
+      return { object: "list", results: [], has_more: false, next_cursor: null };
+    });
+
+    const res = await dispatch("query_database", {
+      data_source_id: "ds-1",
+      where: { Status: "Done" },
+    });
+    expect((res as { ok: boolean }).ok).toBe(true);
+    expect(calls[0]).toMatchObject({
+      method: "dataSources.query",
+      args: {
+        data_source_id: "ds-1",
+        filter: { property: "Status", select: { equals: "Done" } },
+      },
+    });
+  });
+
+  it("walks pages when paginate:true and returns {results, truncated, pages_walked}", async () => {
+    notionStub.dataSources.query
+      .mockResolvedValueOnce({
+        object: "list",
+        results: [{ object: "page", id: "p-1", properties: {} }],
+        has_more: true,
+        next_cursor: "cur-1",
+      })
+      .mockResolvedValueOnce({
+        object: "list",
+        results: [{ object: "page", id: "p-2", properties: {} }],
+        has_more: false,
+        next_cursor: null,
+      });
+
+    const res = await dispatch("query_database", {
+      data_source_id: "ds-1",
+      paginate: true,
+    });
+    expect((res as { ok: boolean }).ok).toBe(true);
+    const data = (res as { data: { results: unknown[]; truncated: boolean; pages_walked: number } }).data;
+    expect(data.results).toHaveLength(2);
+    expect(data.truncated).toBe(false);
+    expect(data.pages_walked).toBe(2);
+    expect(notionStub.dataSources.query).toHaveBeenCalledTimes(2);
+    expect(notionStub.dataSources.query).toHaveBeenLastCalledWith(
+      expect.objectContaining({ start_cursor: "cur-1" })
+    );
+  });
+
+  it("reports truncated:true when paginate:true hits page_limit before exhausting", async () => {
+    notionStub.dataSources.query.mockResolvedValue({
+      object: "list",
+      results: [
+        { object: "page", id: "p-1", properties: {} },
+        { object: "page", id: "p-2", properties: {} },
+      ],
+      has_more: true,
+      next_cursor: "more",
+    });
+
+    const res = await dispatch("query_database", {
+      data_source_id: "ds-1",
+      paginate: true,
+      page_limit: 2,
+    });
+    expect((res as { ok: boolean }).ok).toBe(true);
+    const data = (res as { data: { results: unknown[]; truncated: boolean; pages_walked: number } }).data;
+    expect(data.results).toHaveLength(2);
+    expect(data.truncated).toBe(true);
+    expect(data.pages_walked).toBe(1);
+  });
+
+  it("rejects passing both `where` and `filter` (mutual-exclusion refine)", async () => {
+    const res = await dispatch("query_database", {
+      data_source_id: "ds-1",
+      where: { Status: "Done" },
+      filter: { property: "Status", select: { equals: "Done" } },
+    });
+    expect((res as { ok: boolean }).ok).toBe(false);
+    const err = (res as { error: { code: string; example?: unknown; schema?: unknown } }).error;
+    expect(err.code).toBe("validation_error");
+    // Top-level refine errors carry an example payload but no schema noise.
+    expect(err.example).toBeDefined();
+    expect(notionStub.dataSources.query).not.toHaveBeenCalled();
+  });
+
+  it("surfaces where_compile_error when DSL value is malformed", async () => {
+    const res = await dispatch("query_database", {
+      data_source_id: "ds-1",
+      where: { Priority: { __type: "number", contains: "foo" } },
+    });
+    expect((res as { ok: boolean }).ok).toBe(false);
+    expect((res as { error: { code: string } }).error.code).toBe("where_compile_error");
+    expect(notionStub.dataSources.query).not.toHaveBeenCalled();
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────
@@ -148,6 +246,7 @@ describe("query_database", () => {
 describe("list_data_sources", () => {
   it("returns slim summary by default", async () => {
     notionStub.databases.retrieve.mockResolvedValue({
+      object: "database",
       id: "db-1",
       data_sources: [
         { id: "ds-1", name: "Source A" },
@@ -171,6 +270,7 @@ describe("list_data_sources", () => {
 
   it("returns the raw data_sources field when verbose=true", async () => {
     notionStub.databases.retrieve.mockResolvedValue({
+      object: "database",
       id: "db-1",
       data_sources: [{ id: "ds-1", name: "A", extra: "raw" }],
     });
@@ -185,9 +285,11 @@ describe("list_data_sources", () => {
 describe("get_data_source", () => {
   it("slim shape lists property keys", async () => {
     notionStub.dataSources.retrieve.mockResolvedValue({
+      object: "data_source",
       id: "ds-1",
       parent: { type: "database_id", database_id: "db-1" },
-      name: "Tasks",
+      title: [{ plain_text: "Tasks" }],
+      description: [],
       properties: { Name: { type: "title" }, Status: { type: "status" } },
     });
 
@@ -196,14 +298,21 @@ describe("get_data_source", () => {
       ok: true,
       data: {
         id: "ds-1",
-        name: "Tasks",
+        title: "Tasks",
         properties: ["Name", "Status"],
       },
     });
   });
 
   it("verbose returns the raw SDK response", async () => {
-    const raw = { id: "ds-1", parent: {}, name: "X", properties: {}, extra: "kept" };
+    const raw = {
+      object: "data_source",
+      id: "ds-1",
+      parent: {},
+      title: [],
+      properties: {},
+      extra: "kept",
+    };
     notionStub.dataSources.retrieve.mockResolvedValue(raw);
 
     const res = await dispatch("get_data_source", { data_source_id: "ds-1", verbose: true });
@@ -389,6 +498,7 @@ describe("get_comment", () => {
   it("returns slim {id, created_time}", async () => {
     notionStub.comments.retrieve.mockResolvedValue({
       id: "c-1",
+      created_by: { id: "u-1" },
       created_time: "2026-01-01",
       rich_text: [{ plain_text: "Hi" }],
     });
