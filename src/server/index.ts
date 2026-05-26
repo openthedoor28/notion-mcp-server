@@ -1,17 +1,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CONFIG } from "../config/index.js";
+
 export const server = new McpServer(
   {
     name: CONFIG.serverName,
+    title: CONFIG.serverTitle,
     version: CONFIG.serverVersion,
+    websiteUrl: CONFIG.serverUrl,
   },
   {
     capabilities: {
       tools: {},
     },
     instructions: `
-      MCP server for the Notion.
+      MCP server for Notion.
       It is used to create, update and delete Notion entities.
     `,
   }
