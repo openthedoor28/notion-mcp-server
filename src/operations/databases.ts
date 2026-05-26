@@ -4,6 +4,7 @@ import { getClient } from "../services/notion.js";
 import { register } from "./registry.js";
 import { tryHandler } from "../utils/handler.js";
 import { slimDatabase, slimItem, slimList } from "../utils/slim.js";
+import type { SearchItemResponse } from "../utils/slim.js";
 import { DATABASE_PROPERTY_SCHEMA } from "../schema/database.js";
 import { PARENT_SCHEMA } from "../schema/page.js";
 import { ICON_SCHEMA } from "../schema/icon.js";
@@ -240,6 +241,11 @@ register({
         })
       );
 
+    // query_database results are data source rows (pages). Pass
+    // includeProperties=true so callers see scalar property values without
+    // having to opt into verbose=true (10x larger).
+    const slimRow = (item: SearchItemResponse, v?: boolean) => slimItem(item, v ?? false, true);
+
     if (paginate) {
       const limit = page_limit ?? DEFAULT_ITEM_LIMIT;
       const collected: unknown[] = [];
@@ -250,7 +256,7 @@ register({
         const remaining = limit - collected.length;
         const response = await runQuery(cursor, Math.min(pageSize, remaining));
         pagesWalked += 1;
-        const slim = slimList(response, slimItem, verbose ?? false);
+        const slim = slimList(response, slimRow, verbose ?? false);
         for (const item of slim.results) {
           if (collected.length >= limit) break;
           collected.push(item);
@@ -270,7 +276,7 @@ register({
     }
 
     const response = await runQuery(start_cursor, pageSize);
-    return { ok: true, data: slimList(response, slimItem, verbose ?? false) };
+    return { ok: true, data: slimList(response, slimRow, verbose ?? false) };
   }),
 });
 

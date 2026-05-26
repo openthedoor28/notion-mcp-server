@@ -30,7 +30,6 @@ register({
         ? { database_id, data_sources: sources }
         : {
             database_id,
-            count: sources.length,
             data_sources: sources.map((s) => ({ id: s.id, name: s.name })),
           },
     };

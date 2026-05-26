@@ -5,6 +5,7 @@ import { tryHandler } from "../utils/handler.js";
 import { slimBlock, slimList } from "../utils/slim.js";
 import { parseMarkdownToBlocks } from "../markdown/parse.js";
 import { TEXT_BLOCK_REQUEST_SCHEMA } from "../schema/blocks.js";
+import type { OperationResult } from "./types.js";
 import {
   asSdk,
   type AppendBlockBody,
@@ -49,7 +50,7 @@ register({
       { block_id: "<page-id-2>", markdown: "Body 2" },
     ],
   },
-  handler: tryHandler(async ({ block_id, markdown, children, after, position, verbose }) => {
+  handler: tryHandler(async ({ block_id, markdown, children, after, position, verbose }): Promise<OperationResult> => {
     const blocks = markdown ? parseMarkdownToBlocks(markdown) : (children ?? []);
     if (blocks.length === 0) {
       return {
@@ -72,14 +73,24 @@ register({
       ...(positionArg ? { position: positionArg } : {}),
     };
     const response = await notion.blocks.children.append(asSdk<AppendBlockBody>(body));
+    // Notion returns just the new blocks for default/end/after positions, but
+    // the full updated child set for `position: "start"` (new blocks appear
+    // first). Slice to the requested count so the response stays bounded.
+    const newBlocks = response.results.slice(0, blocks.length);
+    if (verbose) {
+      return {
+        ok: true,
+        data: {
+          appended: blocks.length,
+          results: newBlocks.map((r) => slimBlock(r, true)),
+        },
+      };
+    }
     return {
       ok: true,
       data: {
-        // Trust the input length over response.results.length: the API
-        // returns the updated child set for `position: "start"`, not just
-        // the newly appended blocks.
         appended: blocks.length,
-        results: response.results.map((r) => slimBlock(r, verbose ?? false)),
+        ids: newBlocks.map((r) => r.id),
       },
     };
   }),
@@ -276,7 +287,12 @@ register({
             children: asSdk<AppendBlockChildren>(blocks),
           })
         );
-        results.push({ op: "append", appended: blocks.length, results: r.results.map((x) => slimBlock(x, verbose ?? false)) });
+        const newBlocks = r.results.slice(0, blocks.length);
+        results.push(
+          verbose
+            ? { op: "append", appended: blocks.length, results: newBlocks.map((x) => slimBlock(x, true)) }
+            : { op: "append", appended: blocks.length, ids: newBlocks.map((x) => x.id) }
+        );
       } else if (op.op === "update") {
         let body: Record<string, unknown>;
         if (op.markdown) {

@@ -7,12 +7,14 @@ import { emitJsonSchema } from "../schema/emit.js";
 import { registerAllPrompts } from "../prompts/index.js";
 
 function jsonContent(value: unknown): CallToolResult {
-  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  // Compact JSON keeps the wire response small. Agents parse JSON either way,
+  // and the ~30% bloat from indentation isn't worth paying for in every reply.
+  const text = typeof value === "string" ? value : JSON.stringify(value);
   return { content: [{ type: "text", text }] };
 }
 
 function errorContent(value: unknown): CallToolResult {
-  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  const text = typeof value === "string" ? value : JSON.stringify(value);
   return { isError: true, content: [{ type: "text", text }] };
 }
 

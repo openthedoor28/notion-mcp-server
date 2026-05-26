@@ -259,7 +259,6 @@ describe("list_data_sources", () => {
       ok: true,
       data: {
         database_id: "db-1",
-        count: 2,
         data_sources: [
           { id: "ds-1", name: "Source A" },
           { id: "ds-2", name: "Source B" },

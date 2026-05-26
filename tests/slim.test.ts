@@ -37,17 +37,84 @@ describe("slimPage", () => {
       url: "https://notion.so/p1",
       title: "Hello world",
       parent: { type: "page_id", page_id: "parent" },
-      archived: false,
-      in_trash: false,
       icon: "emoji",
+    });
+  });
+
+  it("emits in_trash:true only when the page is trashed", () => {
+    const trashed = fx<Parameters<typeof slimPage>[0]>({
+      object: "page",
+      id: "p2",
+      url: "https://notion.so/p2",
+      parent: { type: "page_id", page_id: "parent" },
+      in_trash: true,
+      icon: null,
       created_time: "t1",
       last_edited_time: "t2",
+      properties: { Name: { type: "title", title: [{ plain_text: "Gone" }] } },
+    });
+    expect(slimPage(trashed)).toEqual({
+      id: "p2",
+      url: "https://notion.so/p2",
+      title: "Gone",
+      parent: { type: "page_id", page_id: "parent" },
+      in_trash: true,
     });
   });
 
   it("returns raw input when verbose is true", () => {
     const page = fx<Parameters<typeof slimPage>[0]>({ object: "page", id: "p1", random: "stuff" });
     expect(slimPage(page, true)).toBe(page);
+  });
+
+  it("flattens properties to scalars when includeProperties is true", () => {
+    const page = fx<Parameters<typeof slimPage>[0]>({
+      object: "page",
+      id: "p3",
+      url: "u",
+      parent: { type: "data_source_id", data_source_id: "ds-1" },
+      in_trash: false,
+      icon: null,
+      properties: {
+        Name: { type: "title", title: [{ plain_text: "Task 1" }] },
+        Status: { type: "status", status: { name: "Done" } },
+        Priority: { type: "number", number: 3 },
+        Tags: {
+          type: "multi_select",
+          multi_select: [{ name: "alpha" }, { name: "beta" }],
+        },
+        Done: { type: "checkbox", checkbox: true },
+        Due: { type: "date", date: { start: "2026-05-27", end: null } },
+        Empty: { type: "select", select: null },
+        Notes: { type: "rich_text", rich_text: [{ plain_text: "see " }, { plain_text: "this" }] },
+      },
+    });
+    const result = slimPage(page, false, true) as Record<string, unknown>;
+    expect(result.title).toBe("Task 1");
+    expect(result.properties).toEqual({
+      Status: "Done",
+      Priority: 3,
+      Tags: ["alpha", "beta"],
+      Done: true,
+      Due: "2026-05-27",
+      Notes: "see this",
+    });
+  });
+
+  it("omits the properties field entirely when all values are empty", () => {
+    const page = fx<Parameters<typeof slimPage>[0]>({
+      object: "page",
+      id: "p4",
+      url: "u",
+      parent: { type: "page_id", page_id: "parent" },
+      in_trash: false,
+      icon: null,
+      properties: {
+        Name: { type: "title", title: [{ plain_text: "Solo title" }] },
+      },
+    });
+    const result = slimPage(page, false, true) as Record<string, unknown>;
+    expect(result).not.toHaveProperty("properties");
   });
 });
 
@@ -110,17 +177,42 @@ describe("slimDatabase", () => {
       created_time: "t1",
       last_edited_time: "t2",
     });
-    expect(slimDatabase(db)).toMatchObject({
+    expect(slimDatabase(db)).toEqual({
       id: "d1",
       url: "u",
       title: "Tasks",
+      parent: { type: "page_id" },
       is_locked: true,
-      in_trash: false,
       data_sources: [
         { id: "ds-1", name: "Source A" },
         { id: "ds-2", name: "Source B" },
       ],
       icon: "emoji",
+    });
+  });
+
+  it("omits is_inline, is_locked, in_trash, and description defaults", () => {
+    const db = fx<Parameters<typeof slimDatabase>[0]>({
+      object: "database",
+      id: "d2",
+      url: "u",
+      title: [{ plain_text: "Empty" }],
+      description: [],
+      parent: { type: "page_id" },
+      in_trash: false,
+      is_inline: false,
+      is_locked: false,
+      data_sources: [],
+      icon: null,
+      created_time: "t1",
+      last_edited_time: "t2",
+    });
+    expect(slimDatabase(db)).toEqual({
+      id: "d2",
+      url: "u",
+      title: "Empty",
+      parent: { type: "page_id" },
+      data_sources: [],
     });
   });
 });

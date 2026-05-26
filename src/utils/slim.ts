@@ -51,20 +51,114 @@ function extractTitle(
   return undefined;
 }
 
-export function slimPage(page: PageResponse, verbose = false) {
+// Flatten a single Notion property to a primitive (or small object) the LLM
+// can read directly. Returns undefined for empty values so the caller can skip
+// them — keeps the response tight for sparsely populated rows.
+function flattenProperty(
+  prop: PageObjectResponse["properties"][string]
+): unknown {
+  switch (prop.type) {
+    case "title":
+      return extractRichText(prop.title) || undefined;
+    case "rich_text":
+      return extractRichText(prop.rich_text) || undefined;
+    case "number":
+      return prop.number ?? undefined;
+    case "select":
+      return prop.select?.name ?? undefined;
+    case "multi_select":
+      return prop.multi_select.length ? prop.multi_select.map((s) => s.name) : undefined;
+    case "status":
+      return prop.status?.name ?? undefined;
+    case "date": {
+      if (!prop.date) return undefined;
+      const { start, end } = prop.date;
+      return end ? { start, end } : start;
+    }
+    case "people":
+      return prop.people.length ? prop.people.map((p) => p.id) : undefined;
+    case "files":
+      return prop.files.length
+        ? prop.files.map((f) => {
+            if (f.type === "external") return { name: f.name, url: f.external.url };
+            return { name: f.name, url: f.file.url };
+          })
+        : undefined;
+    case "checkbox":
+      return prop.checkbox;
+    case "url":
+      return prop.url ?? undefined;
+    case "email":
+      return prop.email ?? undefined;
+    case "phone_number":
+      return prop.phone_number ?? undefined;
+    case "formula": {
+      const f = prop.formula;
+      if (f.type === "string") return f.string ?? undefined;
+      if (f.type === "number") return f.number ?? undefined;
+      if (f.type === "boolean") return f.boolean ?? undefined;
+      if (f.type === "date") return f.date?.start ?? undefined;
+      return undefined;
+    }
+    case "relation":
+      return prop.relation.length ? prop.relation.map((r) => r.id) : undefined;
+    case "rollup": {
+      const r = prop.rollup;
+      if (r.type === "number") return r.number ?? undefined;
+      if (r.type === "date") return r.date?.start ?? undefined;
+      if (r.type === "array") return r.array.length ? r.array.length : undefined;
+      return undefined;
+    }
+    case "created_time":
+      return prop.created_time;
+    case "last_edited_time":
+      return prop.last_edited_time;
+    case "created_by":
+      return prop.created_by.id;
+    case "last_edited_by":
+      return prop.last_edited_by.id;
+    case "unique_id": {
+      const { prefix, number } = prop.unique_id;
+      return prefix ? `${prefix}-${number}` : number ?? undefined;
+    }
+    case "verification":
+      return prop.verification?.state ?? undefined;
+    default:
+      return undefined;
+  }
+}
+
+function flattenProperties(
+  properties: PageObjectResponse["properties"]
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(properties)) {
+    // Skip the title prop — already surfaced as `title`.
+    if (value.type === "title") continue;
+    const flat = flattenProperty(value);
+    if (flat !== undefined) out[name] = flat;
+  }
+  return out;
+}
+
+export function slimPage(
+  page: PageResponse,
+  verbose = false,
+  includeProperties = false
+) {
   if (verbose) return page;
   if (!isFullPage(page)) return { id: page.id };
-  return {
+  const base = {
     id: page.id,
     url: page.url,
     title: extractTitle(page.properties),
     parent: page.parent,
-    archived: page.in_trash,
-    in_trash: page.in_trash,
-    icon: page.icon ? page.icon.type : null,
-    created_time: page.created_time,
-    last_edited_time: page.last_edited_time,
+    ...(page.in_trash ? { in_trash: true } : {}),
+    ...(page.icon ? { icon: page.icon.type } : {}),
   };
+  if (!includeProperties) return base;
+  const props = flattenProperties(page.properties);
+  return Object.keys(props).length ? { ...base, properties: props } : base;
 }
 
 export function slimBlock(block: BlockResponse, verbose = false) {
@@ -75,9 +169,8 @@ export function slimBlock(block: BlockResponse, verbose = false) {
     id: block.id,
     type: block.type,
     text: extractBlockText(block),
-    has_children: block.has_children,
-    archived: block.in_trash,
-    in_trash: block.in_trash,
+    ...(block.has_children ? { has_children: true } : {}),
+    ...(block.in_trash ? { in_trash: true } : {}),
   };
 
   if (block.type === "to_do") {
@@ -107,44 +200,44 @@ function extractBlockText(block: BlockObjectResponse): string | undefined {
 export function slimDatabase(db: DatabaseResponse, verbose = false) {
   if (verbose) return db;
   if (!isFullDatabase(db)) return { id: db.id };
+  const description = extractRichText(db.description);
   return {
     id: db.id,
     url: db.url,
     title: extractRichText(db.title),
-    description: extractRichText(db.description),
+    ...(description ? { description } : {}),
     parent: db.parent,
-    archived: db.in_trash,
-    in_trash: db.in_trash,
-    is_inline: db.is_inline,
-    is_locked: db.is_locked,
+    ...(db.in_trash ? { in_trash: true } : {}),
+    ...(db.is_inline ? { is_inline: true } : {}),
+    ...(db.is_locked ? { is_locked: true } : {}),
     data_sources: db.data_sources.map((s) => ({ id: s.id, name: s.name })),
-    icon: db.icon ? db.icon.type : null,
-    created_time: db.created_time,
-    last_edited_time: db.last_edited_time,
+    ...(db.icon ? { icon: db.icon.type } : {}),
   };
 }
 
 export function slimDataSource(ds: DataSourceResponse, verbose = false) {
   if (verbose) return ds;
   if (!isFullDataSource(ds)) return { id: ds.id };
+  const description = extractRichText(ds.description);
   return {
     id: ds.id,
     url: ds.url,
     title: extractRichText(ds.title),
-    description: extractRichText(ds.description),
+    ...(description ? { description } : {}),
     parent: ds.parent,
     properties: Object.keys(ds.properties),
-    icon: ds.icon ? ds.icon.type : null,
-    archived: ds.in_trash,
-    in_trash: ds.in_trash,
-    created_time: ds.created_time,
-    last_edited_time: ds.last_edited_time,
+    ...(ds.icon ? { icon: ds.icon.type } : {}),
+    ...(ds.in_trash ? { in_trash: true } : {}),
   };
 }
 
-export function slimItem(item: SearchItemResponse, verbose = false) {
+export function slimItem(
+  item: SearchItemResponse,
+  verbose = false,
+  includeProperties = false
+) {
   if (verbose) return item;
-  if (item.object === "page") return slimPage(item, verbose);
+  if (item.object === "page") return slimPage(item, verbose, includeProperties);
   if (item.object === "database") return slimDatabase(item, verbose);
   return slimDataSource(item, verbose);
 }
@@ -171,7 +264,7 @@ export function slimFileUpload(fu: FileUploadObjectResponse, verbose = false) {
   if (verbose) return fu;
   return {
     file_upload_id: fu.id,
-    status: fu.status ?? null,
+    ...(fu.status ? { status: fu.status } : {}),
     ...(fu.filename ? { filename: fu.filename } : {}),
     ...(fu.content_type ? { content_type: fu.content_type } : {}),
     ...(fu.content_length !== undefined && fu.content_length !== null
