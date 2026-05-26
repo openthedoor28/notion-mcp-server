@@ -66,6 +66,25 @@ export const HEADING3_BLOCK_REQUEST_SCHEMA = BASE_BLOCK_REQUEST_SCHEMA.extend({
   }).describe("Heading 3 block content"),
 });
 
+export const HEADING4_BLOCK_REQUEST_SCHEMA = BASE_BLOCK_REQUEST_SCHEMA.extend({
+  type: z.literal("heading_4").describe("Heading 4 block type"),
+  heading_4: TEXT_BLOCK_BASE_REQUEST_SCHEMA.extend({
+    is_toggleable: z
+      .boolean()
+      .optional()
+      .describe("Whether heading can be toggled"),
+  }).describe("Heading 4 block content"),
+});
+
+export const TAB_BLOCK_REQUEST_SCHEMA = BASE_BLOCK_REQUEST_SCHEMA.extend({
+  type: z.literal("tab").describe("Tab block type"),
+  tab: z
+    .object({
+      icon: ICON_SCHEMA.optional(),
+    })
+    .describe("Tab block content"),
+});
+
 export const QUOTE_BLOCK_REQUEST_SCHEMA = BASE_BLOCK_REQUEST_SCHEMA.extend({
   type: z.literal("quote").describe("Quote block type"),
   quote: TEXT_BLOCK_BASE_REQUEST_SCHEMA.describe("Quote block content"),
@@ -143,6 +162,7 @@ export const TEXT_BLOCK_REQUEST_SCHEMA = z.preprocess(
       HEADING1_BLOCK_REQUEST_SCHEMA,
       HEADING2_BLOCK_REQUEST_SCHEMA,
       HEADING3_BLOCK_REQUEST_SCHEMA,
+      HEADING4_BLOCK_REQUEST_SCHEMA,
       QUOTE_BLOCK_REQUEST_SCHEMA,
       CALLOUT_BLOCK_REQUEST_SCHEMA,
       TOGGLE_BLOCK_REQUEST_SCHEMA,
@@ -152,6 +172,7 @@ export const TEXT_BLOCK_REQUEST_SCHEMA = z.preprocess(
       CODE_BLOCK_REQUEST_SCHEMA,
       DIVIDER_BLOCK_REQUEST_SCHEMA,
       IMAGE_BLOCK_REQUEST_SCHEMA,
+      TAB_BLOCK_REQUEST_SCHEMA,
     ])
     .describe("Union of all possible text block request types")
 );

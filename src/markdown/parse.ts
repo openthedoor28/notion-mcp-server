@@ -88,7 +88,7 @@ function paragraphFrom(node: Paragraph): NotionBlock {
 }
 
 function headingFrom(node: Heading): NotionBlock {
-  const level = Math.min(3, node.depth) as 1 | 2 | 3;
+  const level = Math.min(4, node.depth) as 1 | 2 | 3 | 4;
   const key = `heading_${level}` as const;
   return {
     type: key,

@@ -19,13 +19,13 @@ describe("parseMarkdownToBlocks", () => {
     expect(richText(b)[0].text.content).toBe("hello world");
   });
 
-  it("parses headings (h1, h2, h3) and clamps deeper levels to h3", () => {
+  it("parses headings (h1, h2, h3, h4) and clamps deeper levels to h4", () => {
     const blocks = parseMarkdownToBlocks("# A\n## B\n### C\n#### D") as Block[];
     expect(blocks.map((b) => b.type)).toEqual([
       "heading_1",
       "heading_2",
       "heading_3",
-      "heading_3",
+      "heading_4",
     ]);
   });
 
