@@ -1,4 +1,5 @@
 import { Client } from "@notionhq/client";
+import { authProvider } from "./auth.js";
 
 export function getApiToken(): string {
   const token = process.env.NOTION_TOKEN;
@@ -21,3 +22,17 @@ export function getRootPageId(): string {
 export const notion = new Client({
   auth: process.env.NOTION_TOKEN,
 });
+
+let cachedClient: Client | null = null;
+let cachedToken: string | null = null;
+
+export async function getClient(): Promise<Client> {
+  const token = await authProvider.getToken();
+  if (token !== cachedToken || cachedClient === null) {
+    const fresh = new Client({ auth: token });
+    cachedClient = fresh;
+    cachedToken = token;
+    return fresh;
+  }
+  return cachedClient;
+}
