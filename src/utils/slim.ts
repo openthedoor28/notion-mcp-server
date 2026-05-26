@@ -35,8 +35,8 @@ export function slimPage(page: unknown, verbose = false): unknown {
     url: p.url,
     title: extractTitle(p.properties),
     parent: p.parent,
-    archived: p.archived,
-    in_trash: p.in_trash,
+    archived: (p.archived as boolean | undefined) ?? (p.in_trash as boolean | undefined) ?? false,
+    in_trash: (p.in_trash as boolean | undefined) ?? (p.archived as boolean | undefined) ?? false,
     icon: typeof p.icon === "object" && p.icon !== null ? (p.icon as Any).type : null,
     created_time: p.created_time,
     last_edited_time: p.last_edited_time,
@@ -56,8 +56,8 @@ export function slimBlock(block: unknown, verbose = false): unknown {
     type,
     text,
     has_children: b.has_children,
-    archived: b.archived,
-    in_trash: b.in_trash,
+    archived: (b.archived as boolean | undefined) ?? (b.in_trash as boolean | undefined) ?? false,
+    in_trash: (b.in_trash as boolean | undefined) ?? (b.archived as boolean | undefined) ?? false,
     ...(type === "to_do" && inner && typeof inner.checked === "boolean"
       ? { checked: inner.checked }
       : {}),
@@ -81,8 +81,8 @@ export function slimDatabase(db: unknown, verbose = false): unknown {
     title: Array.isArray(d.title) ? extractRichText(d.title) : undefined,
     description: Array.isArray(d.description) ? extractRichText(d.description) : undefined,
     parent: d.parent,
-    archived: d.archived,
-    in_trash: d.in_trash,
+    archived: (d.archived as boolean | undefined) ?? (d.in_trash as boolean | undefined) ?? false,
+    in_trash: (d.in_trash as boolean | undefined) ?? (d.archived as boolean | undefined) ?? false,
     is_inline: d.is_inline,
     properties: props
       ? Object.fromEntries(
