@@ -6,9 +6,9 @@ beforeAll(async () => {
 });
 
 describe("operations registry", () => {
-  it("registers every name in the OperationName union (29 total)", () => {
+  it("registers every name in the OperationName union (32 total)", () => {
     const names = operationNames();
-    expect(names.length).toBe(29);
+    expect(names.length).toBe(32);
   });
 
   it("includes the data-source ops", () => {
@@ -44,5 +44,11 @@ describe("operations registry", () => {
       page_id: expect.any(String),
       properties: expect.any(Object),
     });
+  });
+
+  it("includes the comment ops", () => {
+    expect(getOperation("get_comment")).toBeDefined();
+    expect(getOperation("update_comment")).toBeDefined();
+    expect(getOperation("delete_comment")).toBeDefined();
   });
 });

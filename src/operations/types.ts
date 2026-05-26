@@ -27,6 +27,9 @@ export type OperationName =
   | "list_comments"
   | "add_page_comment"
   | "add_discussion_comment"
+  | "get_comment"
+  | "update_comment"
+  | "delete_comment"
   | "list_users"
   | "get_user"
   | "get_bot_user";
