@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] — 2026-05-26
+
+### Changed
+
+- Bumped to `@notionhq/client@^5.22.0` and pinned `Notion-Version: 2025-09-03`. Server now talks to the modern Notion API line. Tool surface (`notion_execute`, `notion_describe`) is unchanged for callers.
+- `query_database` now routes through `dataSources.query` under the hood. Single-source databases continue to work transparently when you pass `database_id`. Multi-source databases require `data_source_id` (returns a `multi_source_database` self-healing error pointing to `list_data_sources` if ambiguous).
+- Slim shapers back-fill `archived` ↔ `in_trash` so consumers reading either field continue to work as the wire surface migrates.
+
+### Added
+
+- **Data sources as first-class entities** — `list_data_sources`, `get_data_source`, `update_data_source`.
+- **New page endpoints** — `move_page` (relocate without recreating), `get_page_markdown` / `update_page_markdown` (server-rendered markdown round-trip).
+- **Comment lifecycle** — `get_comment`, `update_comment`, `delete_comment`. `add_page_comment` / `add_discussion_comment` / `update_comment` also accept a `markdown` body as an alternative to plain text / rich text.
+- **New parent types** — `data_source_id`, `workspace`, `block_id` accepted in `create_page` and elsewhere `PARENT_SCHEMA` is used.
+- **New block types** — `heading_4`, `tab` accepted in structured input; the markdown parser emits `heading_4` for `####`.
+- **New database property types** — `button`, `unique_id`, `verification`. `verification` is writable on pages.
+- **`position` param** on `append_blocks` (preferred over legacy `after`; XOR-refined so callers can't pass both).
+- **`in_trash`** surfaced on slim reads alongside `archived` for forward-compatibility with the 2025-09-03 wire surface.
+
 ## [2.0.0] — 2026-05-26
 
 ### Breaking changes
