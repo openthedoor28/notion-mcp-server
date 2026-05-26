@@ -1,5 +1,6 @@
 import { APIResponseError } from "@notionhq/client";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { AuthError } from "../services/auth.js";
 
 /**
  * Error codes from Notion API
@@ -99,6 +100,18 @@ export function handleNotionError(error: unknown): CallToolResult {
         {
           type: "text",
           text: `Error: ${message} (${code})`,
+        },
+      ],
+    };
+  }
+
+  if (error instanceof AuthError) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: `Notion auth failed: ${error.message}`,
         },
       ],
     };
