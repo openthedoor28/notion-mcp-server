@@ -9,7 +9,7 @@
 
 **Notion MCP Server** is a Model Context Protocol (MCP) server implementation that enables AI assistants to interact with Notion's API. This production-ready server provides a complete set of tools and endpoints for reading, creating, and modifying Notion content through natural language interactions.
 
-> 🚧 **Active Development**: Database support is now available! Comments and user management tools have been added. If you find this project useful, please consider giving it a star - it helps me know that this work is valuable to the community and motivates further development.
+> 🚀 **v2.0.0 — Execute-first surface.** The whole API collapses to two tools: `notion_execute` and `notion_describe`. Validation errors return the schema + a working example, so an LLM can self-heal in one round-trip. Every mutating op is batchable through a single `{ items: [...] }` envelope, with atomic mode + best-effort rollback + idempotency keys. See [MIGRATION.md](./MIGRATION.md) if you're upgrading from v1.x.
 
 <a href="https://glama.ai/mcp/servers/zrh07hteaa">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/zrh07hteaa/badge" />
@@ -35,7 +35,7 @@
 
 ## 🚀 Quick start
 
-> **Already running notion-mcp-server v1.x?** If your `NOTION_TOKEN` is set and tools work today, **nothing changes for you in v1.4.0** — the version ships internal upgrades only (Docker image in v1.3.0, Zod 4 migration in v1.4.0). The setup paths below are recommendations for new installs and for users hitting per-page sharing pain.
+> **Upgrading from v1.x?** v2.0.0 replaces the five `notion_*` tools with two (`notion_execute` + `notion_describe`). The install paths below are unchanged — your `NOTION_TOKEN` continues to work — but any client code that hard-codes the old tool names needs the rename described in [MIGRATION.md](./MIGRATION.md).
 
 ### Option 1 — Personal Access Token (recommended)
 
@@ -144,127 +144,92 @@ Add this entry to your MCP config JSON (`~/.cursor/mcp.json` for Cursor, `~/Libr
 
 ## 🌟 Features
 
-- **📝 Notion Integration** - Interact with Notion databases, pages, and blocks
-- **🔌 Universal MCP Compatibility** - Works with all MCP clients including Cursor, Claude Desktop, Cline, and Zed
-- **🔍 Data Retrieval** - Fetch information from Notion pages, blocks, and databases
-- **✏️ Content Creation** - Create and update Notion pages and blocks
-- **📊 Block Management** - Append, update, and delete blocks within Notion pages
-- **💾 Database Operations** - Create, query, and update databases
-- **🔄 Batch Operations** - Perform multiple operations in a single request
-- **🗑️ Archive & Restore** - Archive and restore Notion pages
-- **🔎 Search Functionality** - Search Notion pages and databases by title
-- **💬 Comments Management** - Get, create, and reply to comments on pages and discussions
-- **👥 User Management** - Retrieve workspace users and user information
+- **Two-tool surface** — `notion_execute` (do something) and `notion_describe` (learn its schema). No more 50-field union to load into the LLM's context.
+- **Self-healing errors** — every validation failure returns `{ schema, example, fix }`, so the model corrects bad payloads in one round-trip.
+- **Universal batch** — any mutating op accepts `{ items: [...], atomic?, idempotency_key?, concurrency? }` and reports per-item success/failure.
+- **Atomic batches with rollback** — `atomic: true` aborts on first failure and best-effort archives anything created earlier in the batch.
+- **Idempotency keys** — same key + same op = cached result. Safe to retry on flaky networks.
+- **Markdown shortcut** — `create_page` / `append_blocks` / `update_block` accept a `markdown` string and convert it to Notion blocks (paragraphs, headings, lists, to-dos, quotes, code, dividers, images, inline annotations, links).
+- **Slim responses by default** — pass `verbose: true` per call to get the raw Notion SDK shape.
+- **23 operations** covering pages, blocks, databases, comments, and users — see `notion://operations`.
+- **Universal MCP compatibility** — works with Cursor, Claude Desktop, Claude Code, Cline, Zed, etc.
 
 ## 📚 Documentation
 
 ### Available Tools
 
-The server provides the following consolidated tools for interacting with Notion:
+The v2 server exposes exactly **two** tools:
 
-#### `notion_pages`
+#### `notion_execute`
 
-A comprehensive tool for page operations including:
-- Creating new pages with specified content
-- Updating page properties
-- Archiving pages (moving to trash)
-- Restoring previously archived pages
-- Searching for pages by title
+Run any Notion operation. Pass an operation name plus a payload — either a single object, or `{ items: [...] }` for batch mode.
 
-Example operations:
-```javascript
+**Single call:**
+
+```jsonc
 {
+  "operation": "set_page_title",
+  "payload": { "page_id": "<page-id>", "title": "Q3 plan" }
+}
+```
+
+**Batch:**
+
+```jsonc
+{
+  "operation": "set_page_title",
   "payload": {
-    "action": "create_page", // One of: "create_page", "archive_page", "restore_page", "search_pages", "update_page_properties"
-    "params": {
-      // Parameters specific to the chosen action
-    }
+    "items": [
+      { "page_id": "<p1>", "title": "First" },
+      { "page_id": "<p2>", "title": "Second" }
+    ],
+    "atomic": false,
+    "concurrency": 3,
+    "idempotency_key": "rename-pass-2025-05-26"
   }
 }
 ```
 
-#### `notion_blocks`
+**Markdown shortcut** (works in `create_page`, `append_blocks`, and `update_block`):
 
-A complete toolkit for block operations including:
-- Retrieving block content
-- Fetching child blocks
-- Appending new blocks to a parent
-- Updating existing blocks
-- Deleting blocks
-- Performing batch operations (append, update, delete, mixed)
-
-Example operations:
-```javascript
+```jsonc
 {
+  "operation": "create_page",
   "payload": {
-    "action": "append_block_children", // One of: "append_block_children", "retrieve_block", "retrieve_block_children", "update_block", "delete_block", "batch_append_block_children", "batch_update_blocks", "batch_delete_blocks", "batch_mixed_operations"
-    "params": {
-      // Parameters specific to the chosen action
-    }
+    "parent": { "type": "page_id", "page_id": "<parent>" },
+    "title": "Notes",
+    "markdown": "# Heading\n\n- [ ] todo\n- [x] done\n\n```ts\nconst x = 1;\n```"
   }
 }
 ```
 
-#### `notion_database`
+**Self-healing errors:** if the payload doesn't validate, the response includes the full JSON Schema for that operation plus a working example, so the next call can be corrected without round-tripping through `notion_describe`.
 
-A powerful tool for database interactions including:
-- Creating new databases with custom properties
-- Querying databases with filters and sorting
-- Updating database structure and properties
+#### `notion_describe`
 
-Example operations:
-```javascript
-{
-  "payload": {
-    "action": "create_database", // One of: "create_database", "query_database", "update_database"
-    "params": {
-      // Parameters specific to the chosen action
-    }
-  }
-}
+Return the JSON Schema + working example for a single operation. Use this when you want to see the shape of a complex op (filter expressions, mixed block batches, full database property definitions) before calling `notion_execute`.
+
+```jsonc
+{ "operation": "query_database" }
 ```
 
-#### `notion_comments`
+### Operations menu
 
-A tool for managing comments on Notion content:
-- Retrieving comments from pages and blocks
-- Adding new comments to pages
-- Replying to existing discussions
+Twenty-three operations cover the standard CRUD surface:
 
-Example operations:
-```javascript
-{
-  "payload": {
-    "action": "get_comments", // One of: "get_comments", "add_page_comment", "add_discussion_comment"
-    "params": {
-      // Parameters specific to the chosen action
-    }
-  }
-}
-```
+| Area      | Operations |
+| --------- | ---------- |
+| Pages     | `create_page`, `get_page`, `set_page_title`, `set_page_property`, `set_page_properties`, `archive_page`, `restore_page`, `search_pages` |
+| Blocks    | `append_blocks`, `get_block`, `get_block_children`, `update_block`, `delete_block`, `batch_mixed_blocks` |
+| Databases | `create_database`, `query_database`, `update_database` |
+| Comments  | `list_comments`, `add_page_comment`, `add_discussion_comment` |
+| Users     | `list_users`, `get_user`, `get_bot_user` |
 
-#### `notion_users`
-
-A tool for accessing user information:
-- Listing all workspace users
-- Getting details about specific users
-- Retrieving information about the current bot user
-
-Example operations:
-```javascript
-{
-  "payload": {
-    "action": "list_users", // One of: "list_users", "get_user", "get_bot_user"
-    "params": {
-      // Parameters specific to the chosen action
-    }
-  }
-}
-```
+The authoritative list (with batchability) is also served as an MCP resource at `notion://operations` — useful as a one-shot cheat sheet for the LLM.
 
 ### Available Resources
 
-The server currently does not expose any resources, focusing instead on tool-based operations.
+- **`notion://operations`** — Markdown table of every operation, with its batchability and one-line description. The LLM can read this resource once to know exactly what it can call without consuming context on per-op tool definitions.
 
 ## 🛠 Development
 
@@ -298,12 +263,14 @@ The server currently does not expose any resources, focusing instead on tool-bas
 
 ## 🔧 Technical Details
 
-- Built using TypeScript and the MCP SDK (version 1.7.0+)
-- Uses the official Notion API client (@notionhq/client v2.3.0+)
+- Built using TypeScript and the MCP SDK (^1.29.0)
+- Uses the official Notion API client (@notionhq/client ^2.3.0)
 - Follows the Model Context Protocol specification
-- Implements tools for CRUD operations on Notion pages, blocks, and databases
-- Supports efficient batch operations for performance optimization
-- Validates input/output with Zod schemas
+- Validates payloads with Zod 4 and emits draft-7 JSON Schema (with `$defs` deduplication) for error envelopes
+- Markdown → Notion blocks conversion via the remark / remark-gfm pipeline
+- Bounded-concurrency batch worker pool (default 3, max 10)
+- In-memory idempotency cache (5-minute TTL, 512 entries)
+- Vitest smoke harness covering the markdown parser, slim shapers, schema emitter, and dispatcher (`npm test`)
 
 ## ❓ Troubleshooting
 

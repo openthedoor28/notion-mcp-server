@@ -1,0 +1,131 @@
+# Migrating from notion-mcp-server v1.x → v2.0.0
+
+v2 is a **hard cutover**. The five `notion_*` tools are gone; everything now goes through `notion_execute` (do something) and `notion_describe` (learn its schema). If your client code talks to specific tool names, it needs the rename below.
+
+If you're running an LLM that calls tools by JSON schema discovery (Claude Code, Cursor, Claude Desktop, etc.), the model will pick up the new surface automatically the next time it starts a session — no manual prompt update is needed.
+
+---
+
+## What stayed the same
+
+- The MCP transport (stdio).
+- The install paths (PAT, internal integration, Docker, Smithery).
+- `NOTION_TOKEN` and `NOTION_PAGE_ID` env vars.
+- The set of Notion capabilities you can call — every action available in v1 is still available, just under a slightly cleaner name.
+
+## What changed
+
+### Tools
+
+| v1 tool             | v2                  |
+| ------------------- | ------------------- |
+| `notion_pages`      | `notion_execute` with `operation: "create_page"` / `"get_page"` / `"set_page_title"` / `"set_page_property"` / `"set_page_properties"` / `"archive_page"` / `"restore_page"` / `"search_pages"` |
+| `notion_blocks`     | `notion_execute` with `operation: "append_blocks"` / `"get_block"` / `"get_block_children"` / `"update_block"` / `"delete_block"` / `"batch_mixed_blocks"` |
+| `notion_database`   | `notion_execute` with `operation: "create_database"` / `"query_database"` / `"update_database"` |
+| `notion_comments`   | `notion_execute` with `operation: "list_comments"` / `"add_page_comment"` / `"add_discussion_comment"` |
+| `notion_users`      | `notion_execute` with `operation: "list_users"` / `"get_user"` / `"get_bot_user"` |
+| (none)              | `notion_describe` (returns JSON Schema + example for one op) |
+| (none)              | `notion://operations` MCP resource (markdown cheat sheet) |
+
+### Call shape
+
+v1:
+
+```jsonc
+// notion_pages
+{
+  "payload": {
+    "action": "create_page",
+    "params": { "title": "Hi", "parent": { "type": "page_id", "page_id": "..." } }
+  }
+}
+```
+
+v2:
+
+```jsonc
+// notion_execute
+{
+  "operation": "create_page",
+  "payload": { "title": "Hi", "parent": { "type": "page_id", "page_id": "..." } }
+}
+```
+
+The outer `payload.action` / `payload.params` indirection is gone — you pass the operation name as a sibling of `payload`, and `payload` is just the op's fields.
+
+### Operation renames
+
+| v1 action                                | v2 operation             |
+| ---------------------------------------- | ------------------------ |
+| `update_page_properties` (title rename)  | `set_page_title`         |
+| `update_page_properties` (single field)  | `set_page_property`      |
+| `update_page_properties` (multi field)   | `set_page_properties`    |
+| `retrieve_block`                         | `get_block`              |
+| `retrieve_block_children`                | `get_block_children`     |
+| `append_block_children`                  | `append_blocks`          |
+| `batch_append_block_children`            | `append_blocks` with `{ items: [...] }` |
+| `batch_update_blocks`                    | `update_block` with `{ items: [...] }`  |
+| `batch_delete_blocks`                    | `delete_block` with `{ items: [...] }`  |
+| `batch_mixed_operations`                 | `batch_mixed_blocks`     |
+| `get_comments`                           | `list_comments`          |
+
+### Batch envelope
+
+v1 had five separate batch tools/actions. v2 has one shape that applies to every batchable op:
+
+```jsonc
+{
+  "operation": "set_page_title",
+  "payload": {
+    "items": [
+      { "page_id": "p1", "title": "First" },
+      { "page_id": "p2", "title": "Second" }
+    ],
+    "atomic": false,            // default false; true aborts + rolls back on first failure
+    "concurrency": 3,           // 1..10, default 3
+    "idempotency_key": "..."    // optional; same key = cached batch result for 5 min
+  }
+}
+```
+
+The response is `{ ok, summary: { total, succeeded, failed }, results: [{ index, ok, data | error }], rolled_back? }`.
+
+### Errors
+
+v1 returned a free-form text error. v2 returns a structured envelope:
+
+```jsonc
+{
+  "ok": false,
+  "error": {
+    "code": "validation_error",
+    "operation": "set_page_title",
+    "message": "Invalid input for operation set_page_title",
+    "issues": [{ "path": ["title"], "message": "Expected string, received number" }],
+    "schema": { /* full JSON Schema for the op */ },
+    "example": { "page_id": "<page-id>", "title": "New title" },
+    "fix": "Patch your payload to match `schema`, then retry."
+  }
+}
+```
+
+If you're an LLM hitting a validation error, you can correct and retry without first calling `notion_describe` — the schema and a working example come back in the error itself.
+
+### Response shape
+
+Reads are slimmed by default. `slimPage` drops the raw properties bag and surfaces `{ id, url, title, parent, icon, archived, in_trash, created_time, last_edited_time }`. Pass `verbose: true` (single call) or per item (batch) if you specifically need the full Notion SDK shape.
+
+### Markdown
+
+`create_page`, `append_blocks`, and `update_block` accept either a structured `children` array (Notion block-request objects) or a `markdown` string. Supported: paragraphs, headings 1–3, bulleted / numbered lists, GFM to-do items (`- [ ]`, `- [x]`) with nested children, blockquotes, fenced code (language is normalized through a small alias map: `ts → typescript`, `js → javascript`, `py → python`, `rs → rust`, …), thematic breaks (`---`), images (`![alt](url)`), and inline annotations (`**bold**`, `*italic*`, `~~strike~~`, `` `code` ``, links).
+
+`update_block` with `markdown` must parse to **exactly one** block (returns `markdown_multiblock` error otherwise).
+
+## Quick checklist
+
+- [ ] Replace `notion_pages` / `notion_blocks` / `notion_database` / `notion_comments` / `notion_users` calls with `notion_execute`.
+- [ ] Move `payload.action` to top-level `operation`, lift `payload.params` to `payload`.
+- [ ] Rename actions per the table above.
+- [ ] Update any batch sites to use the unified `{ items: [...] }` envelope.
+- [ ] If you depend on raw Notion SDK fields, add `verbose: true` to those call sites.
+- [ ] Drop any custom error parsing — the new envelope is structured.
