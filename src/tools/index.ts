@@ -10,6 +10,10 @@ import { registerDatabaseOperationTool } from "./database.js";
 import { registerCommentsOperationTool } from "./comments.js";
 import { registerUsersOperationTool } from "./users.js";
 
+// New registerTool() calls should pass discriminated-union schemas without
+// `@ts-expect-error` directives. The TS2589 "type instantiation excessively deep"
+// the SDK previously hit on these schemas was resolved by Zod 4's ~100x reduction
+// in type instantiations.
 export const registerAllTools = () => {
   server.registerTool(
     "notion_pages",

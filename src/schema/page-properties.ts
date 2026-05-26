@@ -24,7 +24,7 @@ export const FILES_PROPERTY_VALUE_SCHEMA = z.object({
     z.object({
       name: z.string(),
       external: z.object({
-        url: z.url(),
+        url: z.url({ protocol: /^https?$/ }),
       }),
     })
   ),
@@ -81,5 +81,5 @@ export const TITLE_PROPERTY_VALUE_SCHEMA = z.object({
 });
 
 export const URL_PROPERTY_VALUE_SCHEMA = z.object({
-  url: z.url(),
+  url: z.url({ protocol: /^https?$/ }),
 });
