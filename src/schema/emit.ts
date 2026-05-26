@@ -9,14 +9,20 @@ export function registerSharedRef(name: string, schema: ZodType<unknown>): void 
 }
 
 export function emitJsonSchema(schema: ZodType<unknown>): JsonSchema {
-  const raw = z.toJSONSchema(schema, { target: "draft-7" }) as JsonSchema;
+  const raw = z.toJSONSchema(schema, {
+    target: "draft-7",
+    unrepresentable: "any",
+  }) as JsonSchema;
   return hoistSharedRefs(raw);
 }
 
 function hoistSharedRefs(root: JsonSchema): JsonSchema {
   const sharedSchemas: Record<string, JsonSchema> = {};
   for (const [name, zodSchema] of Object.entries(SHARED_REFS)) {
-    const raw = z.toJSONSchema(zodSchema, { target: "draft-7" }) as JsonSchema;
+    const raw = z.toJSONSchema(zodSchema, {
+      target: "draft-7",
+      unrepresentable: "any",
+    }) as JsonSchema;
     // Root-level emission adds `$schema`, but nested inline usages don't carry it.
     // Strip it so the equality key matches inline sites.
     const { $schema: _drop, ...rest } = raw as JsonSchema & { $schema?: string };
