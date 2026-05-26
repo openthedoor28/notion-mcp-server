@@ -88,7 +88,7 @@ register({
         is_inline: params.is_inline ?? false,
         ...(params.icon !== undefined ? { icon: params.icon as never } : {}),
         ...(params.cover !== undefined ? { cover: params.cover as never } : {}),
-      });
+      } as never);
       return { ok: true, data: slimDatabase(response, params.verbose ?? false) };
     } catch (error) {
       return { ok: false, error: toErrorEnvelope(error) };
@@ -138,7 +138,7 @@ register({
   handler: async ({ database_id, filter, sorts, page_size, start_cursor, verbose }) => {
     try {
       const notion = await getClient();
-      const response = await notion.databases.query({
+      const response = await (notion.databases as never as { query: (args: unknown) => Promise<never> }).query({
         database_id,
         ...(filter ? { filter: filter as never } : {}),
         ...(sorts ? { sorts: sorts as never } : {}),
