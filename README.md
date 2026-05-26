@@ -20,6 +20,7 @@
 - [Quick start](#-quick-start)
   - [Option 1 — Personal Access Token (recommended)](#option-1--personal-access-token-recommended)
   - [Option 2 — Internal Integration (legacy)](#option-2--internal-integration-legacy)
+  - [Option 3 — Docker](#option-3--docker)
   - [Optional: `NOTION_PAGE_ID`](#optional-notion_page_id)
   - [Cursor / Claude Desktop](#cursor--claude-desktop)
 - [Features](#-features)
@@ -60,6 +61,55 @@ Use this if you specifically want a workspace-scoped integration with explicit p
 2. Copy the Internal Integration Secret (`ntn_...` on new integrations; `secret_...` on older ones).
 3. Use the same `claude mcp add` command as above — the env var is identical.
 4. **Important:** open each page or database in Notion's UI and click **• • • → Connect → \<your integration name\>** to grant access. This is the per-page friction that PATs eliminate.
+
+### Option 3 — Docker
+
+Run the published image — no clone, no `npm install`, no Node version juggling.
+
+```bash
+claude mcp add notion -s user \
+  -e NOTION_TOKEN=ntn_paste_your_token_here \
+  -- docker run --rm -i -e NOTION_TOKEN ghcr.io/awkoy/notion-mcp-server:latest
+```
+
+The `-i` flag is required (stdio transport). The bare `-e NOTION_TOKEN` (no `=value`) forwards the env var from the parent process — Claude Code sets it from the `-e` flag above.
+
+**Cursor / Claude Desktop:**
+
+```json
+{
+  "mcpServers": {
+    "notion": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-e", "NOTION_TOKEN",
+        "ghcr.io/awkoy/notion-mcp-server:latest"
+      ],
+      "env": {
+        "NOTION_TOKEN": "ntn_paste_your_token_here"
+      }
+    }
+  }
+}
+```
+
+**Build locally instead:**
+
+```bash
+git clone https://github.com/awkoy/notion-mcp-server.git
+cd notion-mcp-server
+docker build -t notion-mcp-server .
+# then swap `ghcr.io/awkoy/notion-mcp-server:latest` for `notion-mcp-server` above
+```
+
+**Docker Compose** (for local dev with both env vars):
+
+```bash
+NOTION_TOKEN=ntn_xxx NOTION_PAGE_ID=abc... docker compose run --rm notion-mcp-server
+```
+
+**Other container runtimes:** the published image is OCI-compliant, so it works with **Podman** (`podman run --rm -i ...`), **OrbStack**, **colima**, **Rancher Desktop**, **Finch**, and **nerdctl** — substitute the runtime's CLI for `docker` and the flags are identical. Docker Desktop is not required.
 
 ### Optional: `NOTION_PAGE_ID`
 
@@ -261,6 +311,8 @@ The server currently does not expose any resources, focusing instead on tool-bas
 - **"Notion auth failed: ..." on every call** — the token was missing, revoked, or rejected. Check `NOTION_TOKEN` is set in your MCP client config, and verify the token is still listed under Notion → Settings → My Settings → Personal Access Tokens (or Settings → Connections → Develop or manage integrations).
 - **"No parent page configured"** — pass `parent` in the call, or set `NOTION_PAGE_ID` to a default.
 - **Server logs "Notion auth check failed" on startup but tools still work** — the startup check is best-effort. If subsequent tool calls succeed, ignore the warning (Claude Code suppresses MCP stderr in normal operation anyway).
+- **Docker container exits immediately / "Connection closed"** — the `-i` flag is required so Docker keeps stdin open for the MCP stdio transport. `docker run --rm -i ...`, not `docker run --rm ...`.
+- **Docker: "NOTION_TOKEN is not set" despite passing `-e`** — make sure the form is `-e NOTION_TOKEN` (forwards from parent env) or `-e NOTION_TOKEN=ntn_xxx` (inline value), not `-e NOTION_TOKEN ntn_xxx` (treated as two separate args).
 
 ### Getting Help
 

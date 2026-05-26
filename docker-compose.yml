@@ -1,0 +1,9 @@
+services:
+  notion-mcp-server:
+    build: .
+    image: ghcr.io/awkoy/notion-mcp-server:latest
+    stdin_open: true
+    tty: false
+    environment:
+      NOTION_TOKEN: ${NOTION_TOKEN:?NOTION_TOKEN is required}
+      NOTION_PAGE_ID: ${NOTION_PAGE_ID:-}

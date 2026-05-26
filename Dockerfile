@@ -1,24 +1,28 @@
-FROM node:22.12-alpine AS builder
+# syntax=docker/dockerfile:1.7
+
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
+
 COPY tsconfig.json ./
 COPY src/ ./src/
-
-RUN --mount=type=cache,target=/root/.npm npm install
 RUN npm run build
 
-FROM node:22.12-alpine AS release
+FROM node:22-alpine AS release
 
 WORKDIR /app
-
-COPY --from=builder /app/build /app/build
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/package-lock.json ./
 
 ENV NODE_ENV=production
 
-RUN npm ci --ignore-scripts --omit-dev
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --ignore-scripts \
+    && npm cache clean --force
 
-CMD ["node", "build/index.js"]
+COPY --from=builder /app/build ./build
+
+USER node
+
+ENTRYPOINT ["node", "build/index.js"]
