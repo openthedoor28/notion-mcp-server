@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { getRootPageId } from "../services/notion.js";
 import { ICON_SCHEMA } from "./icon.js";
 import { TEXT_BLOCK_REQUEST_SCHEMA } from "./blocks.js";
 import { preprocessJson } from "./preprocess.js";
@@ -46,14 +45,9 @@ export const PARENT_SCHEMA = z.preprocess(
 );
 
 export const CREATE_PAGE_SCHEMA = {
-  parent: PARENT_SCHEMA.optional()
-    .default({
-      type: "page_id",
-      page_id: getRootPageId(),
-    })
-    .describe(
-      "Optional parent - if not provided, will use NOTION_PAGE_ID as parent page"
-    ),
+  parent: PARENT_SCHEMA.optional().describe(
+    "Optional parent. If omitted, the server falls back to the NOTION_PAGE_ID environment variable; if that's also unset, the call returns a clear error."
+  ),
   properties: z
     .record(
       z.string().describe("Property name"),

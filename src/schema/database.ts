@@ -9,7 +9,6 @@ import {
 } from "./rich-text.js";
 import { preprocessJson } from "./preprocess.js";
 import { NUMBER_FORMAT } from "./number.js";
-import { getRootPageId } from "../services/notion.js";
 
 export const EMPTY_OBJECT_SCHEMA = z.record(z.string(), z.never()).default({});
 export const SELECT_COLOR_SCHEMA = z.enum([
@@ -336,14 +335,9 @@ export const DATABASE_PROPERTY_SCHEMA = z.preprocess(
 
 // Create database schema
 export const CREATE_DATABASE_SCHEMA = {
-  parent: PARENT_SCHEMA.optional()
-    .default({
-      type: "page_id",
-      page_id: getRootPageId(),
-    })
-    .describe(
-      "Optional parent - if not provided, will use NOTION_PAGE_ID as parent page"
-    ),
+  parent: PARENT_SCHEMA.optional().describe(
+    "Optional parent. If omitted, the server falls back to the NOTION_PAGE_ID environment variable; if that's also unset, the call returns a clear error."
+  ),
   title: z.array(TEXT_RICH_TEXT_ITEM_REQUEST_SCHEMA).describe("Database title"),
   description: z
     .array(TEXT_RICH_TEXT_ITEM_REQUEST_SCHEMA)
