@@ -232,7 +232,7 @@ describe("update_data_source", () => {
 // ────────────────────────────────────────────────────────────────────────
 
 describe("move_page", () => {
-  it("calls pages.move with the new parent", async () => {
+  it("forwards new_parent as `parent` on the SDK call (matching the move endpoint body)", async () => {
     notionStub.pages.move.mockResolvedValue({
       id: "p-1",
       url: "https://notion.so/p-1",
@@ -247,23 +247,50 @@ describe("move_page", () => {
     expect((res as { ok: boolean }).ok).toBe(true);
     expect(notionStub.pages.move).toHaveBeenCalledWith({
       page_id: "p-1",
-      new_parent: { type: "page_id", page_id: "dest" },
+      parent: { type: "page_id", page_id: "dest" },
     });
+    const call = notionStub.pages.move.mock.calls[0][0] as Record<string, unknown>;
+    expect(call).not.toHaveProperty("new_parent");
   });
 
-  it("accepts new parent types (data_source_id, workspace, block_id)", async () => {
+  it("accepts data_source_id parent", async () => {
     notionStub.pages.move.mockResolvedValue({
       id: "p-1",
       url: "u",
       properties: {},
-      parent: { type: "workspace", workspace: true },
+      parent: { type: "data_source_id", data_source_id: "ds-1" },
     });
 
     const res = await dispatch("move_page", {
       page_id: "p-1",
-      new_parent: { type: "workspace", workspace: true },
+      new_parent: { type: "data_source_id", data_source_id: "ds-1" },
     });
     expect((res as { ok: boolean }).ok).toBe(true);
+    expect(notionStub.pages.move).toHaveBeenCalledWith({
+      page_id: "p-1",
+      parent: { type: "data_source_id", data_source_id: "ds-1" },
+    });
+  });
+
+  it("rejects unsupported parent variants with self-healing envelope", async () => {
+    const res = await dispatch("move_page", {
+      page_id: "p-1",
+      new_parent: { type: "database_id", database_id: "db-1" },
+    });
+    expect((res as { ok: boolean }).ok).toBe(false);
+    const err = (res as { error: { code: string; fix: string } }).error;
+    expect(err.code).toBe("unsupported_parent");
+    expect(err.fix).toContain("list_data_sources");
+    expect(notionStub.pages.move).not.toHaveBeenCalled();
+  });
+
+  it("rejects workspace parent (move endpoint only supports page_id or data_source_id)", async () => {
+    const res = await dispatch("move_page", {
+      page_id: "p-1",
+      new_parent: { type: "workspace", workspace: true },
+    });
+    expect((res as { ok: boolean }).ok).toBe(false);
+    expect((res as { error: { code: string } }).error.code).toBe("unsupported_parent");
   });
 });
 
@@ -590,5 +617,34 @@ describe("update_database in_trash handling", () => {
     });
     const call = notionStub.databases.update.mock.calls[0][0] as Record<string, unknown>;
     expect(call.in_trash).toBe(false);
+  });
+});
+
+describe("update_database properties migration", () => {
+  it("rejects properties with a self-healing envelope pointing to update_data_source", async () => {
+    const res = await dispatch("update_database", {
+      database_id: "db-1",
+      properties: { Name: { type: "title", title: {} } },
+    });
+    expect((res as { ok: boolean }).ok).toBe(false);
+    const err = (res as { error: { code: string; fix: string } }).error;
+    expect(err.code).toBe("properties_moved");
+    expect(err.fix).toContain("update_data_source");
+    expect(notionStub.databases.update).not.toHaveBeenCalled();
+  });
+
+  it("does not forward properties even when other fields are present", async () => {
+    notionStub.databases.update.mockResolvedValue({ id: "db-1", title: [], properties: {} });
+    // sanity: bare update without properties still works
+    await dispatch("update_database", { database_id: "db-1", title: "Renamed" });
+    const call = notionStub.databases.update.mock.calls[0][0] as Record<string, unknown>;
+    expect(call).not.toHaveProperty("properties");
+  });
+
+  it("forwards is_locked when provided", async () => {
+    notionStub.databases.update.mockResolvedValue({ id: "db-1", title: [], properties: {} });
+    await dispatch("update_database", { database_id: "db-1", is_locked: true });
+    const call = notionStub.databases.update.mock.calls[0][0] as Record<string, unknown>;
+    expect(call.is_locked).toBe(true);
   });
 });

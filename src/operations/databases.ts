@@ -186,8 +186,12 @@ const UpdateDatabaseParams = z.object({
   title: z.string().optional(),
   title_rich: z.array(TEXT_RICH_TEXT_ITEM_REQUEST_SCHEMA).optional(),
   description: z.array(TEXT_RICH_TEXT_ITEM_REQUEST_SCHEMA).optional(),
-  properties: z.record(z.string(), DATABASE_PROPERTY_SCHEMA).optional(),
+  properties: z
+    .record(z.string(), DATABASE_PROPERTY_SCHEMA)
+    .optional()
+    .describe("Deprecated on the 2025-09-03 surface — properties live on the data source. Call update_data_source instead. Rejected here so the migration is explicit."),
   is_inline: z.boolean().optional(),
+  is_locked: z.boolean().optional(),
   in_trash: z.boolean().optional(),
   archived: z.boolean().optional().describe("Deprecated alias for `in_trash`. Use `in_trash` on the 2025-09-03 surface."),
   icon: ICON_SCHEMA.nullable().optional(),
@@ -197,7 +201,7 @@ const UpdateDatabaseParams = z.object({
 
 register({
   name: "update_database",
-  description: "Update database title, description, properties, archived flag, icon, or cover.",
+  description: "Update database-level metadata (title, description, icon, cover, is_inline, is_locked, in_trash). For schema/property changes, use update_data_source.",
   batchable: true,
   schema: UpdateDatabaseParams,
   example: {
@@ -206,6 +210,16 @@ register({
   },
   handler: async (params) => {
     try {
+      if (params.properties) {
+        return {
+          ok: false,
+          error: {
+            code: "properties_moved",
+            message: "Property definitions are no longer accepted on update_database in the 2025-09-03 surface.",
+            fix: "Call list_data_sources to resolve the data_source_id, then update_data_source with the same properties map.",
+          },
+        };
+      }
       const titleRich = params.title_rich
         ? params.title_rich
         : params.title !== undefined
@@ -217,8 +231,8 @@ register({
         database_id: params.database_id,
         ...(titleRich ? { title: titleRich as never } : {}),
         ...(params.description ? { description: params.description as never } : {}),
-        ...(params.properties ? { properties: params.properties as never } : {}),
         ...(params.is_inline !== undefined ? { is_inline: params.is_inline } : {}),
+        ...(params.is_locked !== undefined ? { is_locked: params.is_locked } : {}),
         ...(inTrash !== undefined ? { in_trash: inTrash } : {}),
         ...(params.icon !== undefined ? { icon: params.icon as never } : {}),
         ...(params.cover !== undefined ? { cover: params.cover as never } : {}),

@@ -398,10 +398,23 @@ register({
   },
   handler: async ({ page_id, new_parent, verbose }) => {
     try {
+      if (new_parent.type !== "page_id" && new_parent.type !== "data_source_id") {
+        return {
+          ok: false,
+          error: {
+            code: "unsupported_parent",
+            message: `move_page only accepts page_id or data_source_id, received ${new_parent.type}.`,
+            fix:
+              new_parent.type === "database_id"
+                ? "Call list_data_sources on the database and pass the resolved data_source_id."
+                : "Set new_parent.type to 'page_id' or 'data_source_id'.",
+          },
+        };
+      }
       const notion = await getClient();
       const response = await notion.pages.move({
         page_id,
-        new_parent: new_parent as never,
+        parent: new_parent as never,
       } as never);
       return { ok: true, data: slimPage(response, verbose ?? false) };
     } catch (error) {
