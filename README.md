@@ -62,15 +62,16 @@ Claude reads and writes Notion directly — no copy/paste, no browser tabs.
 
 A Personal Access Token (PAT) is like a key that lets the AI act as **you** inside Notion. It can see every page **you** can see — no per-page setup.
 
-1. Open Notion (the app or the website).
-2. Click your **profile picture** (top-left) → **Settings**.
-3. In the left sidebar, click **My Settings** → **Personal Access Tokens** (depending on Notion's rollout, may appear as "API tokens" or **Connections → Tokens**).
-4. Click **Generate new token**, give it a name like "Claude", click **Generate**.
-5. **Copy** the token — Notion shows the full value **only once**. It starts with `ntn_`. Treat it like a password.
+1. Open the Notion developer portal: **[notion.so/profile/integrations](https://www.notion.so/profile/integrations)** (while logged into Notion). Same page if you go through the app: **Settings → Connections → Develop or manage integrations**.
+2. Open the **Personal access tokens** tab → click **+ New personal access token**.
+3. Give it a name like `Claude`, pick the **workspace** the token should act in, leave the default capabilities checked, and click **Create token**.
+4. **Copy** the token — Notion shows the full value **only once**. It starts with `ntn_`. Treat it like a password.
 
-> Need more detail (rotation, revocation, what a PAT can/can't do, admin restrictions)? See the [full PAT walkthrough](#get-a-personal-access-token--full-walkthrough) further down.
+> PATs **expire 1 year after creation**. Set a calendar reminder to rotate before then, or auth will start failing.
 >
-> Don't see a Personal Access Tokens / API tokens entry? Your workspace admin may have disabled them — use the [Internal Integration alternative](#authentication-pat-recommended-vs-internal-integration).
+> Don't see a "Personal access tokens" tab? Your workspace admin may have disabled them — use the [Internal Integration alternative](#authentication-pat-recommended-vs-internal-integration).
+>
+> Need more detail (rotation, revocation, what a PAT can/can't do)? See the [full PAT walkthrough](#get-a-personal-access-token--full-walkthrough) further down. Official reference: [Notion PAT guide](https://developers.notion.com/guides/get-started/personal-access-tokens).
 
 ### Step 2 — Tell Claude Desktop where the server lives
 
@@ -153,7 +154,7 @@ There are two ways to authenticate. Both use the `NOTION_TOKEN` env var — only
 
 | | **Personal Access Token** (recommended) | **Internal Integration** (legacy) |
 | --- | --- | --- |
-| Where you get it | Notion → Settings → **My Settings** → **Personal Access Tokens** → Generate | Notion → Settings → **Connections** → **Develop or manage integrations** → New integration |
+| Where you get it | [notion.so/profile/integrations](https://www.notion.so/profile/integrations) → **Personal access tokens** tab → **+ New personal access token** | [notion.so/profile/integrations/internal](https://www.notion.so/profile/integrations/internal) → **+ New connection** |
 | Token prefix | `ntn_…` | `ntn_…` (new) or `secret_…` (older) |
 | Scope | Everything **you** can see | Only pages where you've clicked **• • • → Connect → \<integration\>** |
 | Setup friction | None — works immediately | Per-page Connect dance for every page or database the agent should touch |
@@ -165,46 +166,11 @@ The rest of this README assumes PAT. Swap in an integration secret if you prefer
 
 ### Get a Personal Access Token — full walkthrough
 
-A Personal Access Token (PAT) authenticates as **you** in Notion's API. It inherits your account's page access, never expires until you revoke it, and skips the per-page **Connect** step that Internal Integrations require.
+[Step 1 of the 5-minute install](#step-1--get-your-notion-personal-access-token) covers the happy path. This section covers what surrounds it: capabilities, expiry, revocation, and the admin-disabled fallback.
 
-#### 1. Open Notion settings
+> 📖 Official: [Notion PAT guide](https://developers.notion.com/guides/get-started/personal-access-tokens) · [Authorization overview](https://developers.notion.com/docs/authorization).
 
-- **Desktop / web:** click your workspace name or profile picture in the top-left corner → **Settings** (gear icon).
-- **Mobile:** menu → **Settings & members** → **Settings**.
-
-Make sure you're in the workspace you want the token to access. PATs are issued per-account but inherit the workspace context where they were created.
-
-#### 2. Find the tokens panel
-
-In the Settings sidebar, look under your name. The exact label depends on Notion's rollout — any of these:
-
-- **My Settings → Personal Access Tokens**
-- **My Settings → API tokens**
-- **Connections → Tokens** (newer accounts)
-
-If you don't see any of those, the workspace admin may have disabled them — see [Workspace admin disabled PATs?](#workspace-admin-disabled-pats) below.
-
-#### 3. Generate a new token
-
-1. Click **Generate new token** (or **+ New token** on newer UIs).
-2. Give it a recognizable name like `Claude`, `Cursor`, or `MCP Server – home`. The name is only for your records; it doesn't affect behavior.
-3. Click **Generate**.
-
-#### 4. Copy the token immediately
-
-Notion shows the full token **only once**. After you close the dialog, only the first few characters are visible — there's no "show again" button. The token format is `ntn_` followed by a long random string.
-
-If you missed copying it, just revoke the token (step below) and generate a new one. It's quick and harmless.
-
-#### 5. Store it safely
-
-Treat the token like a password:
-
-- **Do** put it in a password manager.
-- **Do** put it in your MCP client's local config file (Claude Desktop's `claude_desktop_config.json`, Cursor's `~/.cursor/mcp.json`, `.env` files that are in `.gitignore`).
-- **Don't** commit it to git, paste it in shared documents, post it in chat, or share it with teammates (issue them their own).
-
-#### 6. What a PAT can and can't do
+#### What a PAT can and can't do
 
 | Can | Can't |
 | --- | --- |
@@ -213,24 +179,26 @@ Treat the token like a password:
 | Add comments under your identity | Act as another user |
 | Upload files via the File Upload API | Modify workspace-level admin settings |
 
-A PAT is a **scope = your account**. If you lose edit access to a page, the PAT loses edit access too.
+A PAT is a **scope = your account**. If you lose edit access to a page, the PAT loses it too. Issue separate tokens to teammates — don't share one.
 
-#### Rotating or revoking a PAT
+#### Expiry and rotation
 
-To revoke (lost device, compromised token, finished project, security policy):
+**PATs expire 1 year after creation** ([Notion docs](https://developers.notion.com/guides/get-started/personal-access-tokens)). After expiry, every API call returns an auth error until you replace the token. Set a calendar reminder for ~11 months out.
 
-1. **Notion → Settings → My Settings → Personal Access Tokens** (or wherever you generated it).
-2. Find the token by its name → **• • • → Revoke** (or the trash icon).
-3. Update `NOTION_TOKEN` in your MCP client config with a fresh token, and restart the client.
+#### Revoking a PAT
 
-Tokens have **no default expiry** — they live until you revoke them. Rotate periodically as a hygiene practice.
+1. Open **[notion.so/profile/integrations](https://www.notion.so/profile/integrations)** → **Personal access tokens** tab.
+2. Find the token by name → **• • • → Revoke**.
+3. Update `NOTION_TOKEN` in your MCP client config and restart the client.
+
+Workspace admins can revoke any user's PATs from **Settings & members → Connections → All personal access tokens**. Revocation is immediate.
 
 #### Workspace admin disabled PATs?
 
-Some enterprise workspaces force scoped Internal Integrations instead. Two options:
+Some enterprise workspaces only allow scoped Internal Integrations. Two options:
 
 1. **Ask your admin to enable PATs** for your account.
-2. **Use the [Internal Integration](#authentication-pat-recommended-vs-internal-integration) path** — it works with the same `NOTION_TOKEN` env var; you just generate the secret from Notion → Settings → **Connections** → **Develop or manage integrations** → **New integration**, then click **• • • → Connect** on every page or database you want the agent to touch.
+2. **Use the [Internal Integration](#authentication-pat-recommended-vs-internal-integration) path** — same `NOTION_TOKEN` env var; create it at **[notion.so/profile/integrations/internal](https://www.notion.so/profile/integrations/internal) → + New connection**, then click **• • • → Connect** on every page or database you want the agent to touch.
 
 ### Backward compatibility from v1.x
 
@@ -456,7 +424,7 @@ npm run inspector   # MCP inspector against the built binary
 ## ❓ Troubleshooting the Notion MCP server
 
 - **"object_not_found" / "Could not find ..."** — the integration token can only see pages explicitly shared with it. Switch to a PAT to skip per-page sharing.
-- **"Notion auth failed" on every call** — the token was missing, revoked, or rejected. Check `NOTION_TOKEN` is set in your MCP client config, and verify the token is still listed under Notion → Settings → My Settings → Personal Access Tokens (or Settings → Connections → Develop or manage integrations).
+- **"Notion auth failed" on every call** — the token was missing, revoked, or expired (PATs expire 1 year after creation). Check `NOTION_TOKEN` is set in your MCP client config, then open [notion.so/profile/integrations](https://www.notion.so/profile/integrations) → **Personal access tokens** and confirm yours is still listed and not past its expiry. If it expired, create a new one and update the env var.
 - **"No parent page configured"** — pass `parent` in the call, or set `NOTION_PAGE_ID` to a default.
 - **"multi_source_database" error from `query_database`** — your database has more than one data source. Call `list_data_sources` to get the IDs, then pass `data_source_id` instead of `database_id`.
 - **Server logs "Notion auth check failed" on startup but tools still work** — the startup check is best-effort. If subsequent tool calls succeed, ignore the warning (Claude Code suppresses MCP stderr anyway).
@@ -479,11 +447,11 @@ The Notion MCP server is a Model Context Protocol (MCP) server that connects AI 
 
 ### How do I connect Claude to Notion using MCP?
 
-Follow the [5-minute install](#-5-minute-install-no-coding-required) above. The short version: get a Notion Personal Access Token from Notion → Settings → My Settings → Personal Access Tokens, then paste it into Claude Desktop's `claude_desktop_config.json` (Settings → Developer → Edit Config). Quit and reopen Claude Desktop and you can ask it to create or read Notion pages directly.
+Follow the [5-minute install](#-5-minute-install-no-coding-required) above. The short version: get a Notion Personal Access Token at [notion.so/profile/integrations](https://www.notion.so/profile/integrations) → **Personal access tokens** tab → **+ New personal access token**, then paste it into Claude Desktop's `claude_desktop_config.json` (Settings → Developer → Edit Config). Quit and reopen Claude Desktop and you can ask it to create or read Notion pages directly.
 
 ### What is a Notion Personal Access Token and how do I get one?
 
-A Personal Access Token (PAT) is a key that lets an app act as **you** inside Notion. It can see every page you can see — no per-page "Connect" step required. Generate one at **Notion → Settings → My Settings → Personal Access Tokens → Generate**. The token starts with `ntn_…`. Treat it like a password; don't commit it to git or share it publicly.
+A Personal Access Token (PAT) is a key that lets an app act as **you** inside Notion. It can see every page you can see — no per-page "Connect" step required. Generate one at **[notion.so/profile/integrations](https://www.notion.so/profile/integrations) → Personal access tokens → + New personal access token**. The token starts with `ntn_…` and expires 1 year after creation. Treat it like a password; don't commit it to git or share it publicly. See the [full walkthrough](#get-a-personal-access-token--full-walkthrough) for capabilities, rotation, and admin restrictions, or the [official Notion guide](https://developers.notion.com/guides/get-started/personal-access-tokens).
 
 ### What's the difference between this Notion MCP server and the official Notion MCP?
 
@@ -495,7 +463,7 @@ Yes. Anything that speaks the MCP stdio protocol works: Claude Desktop, Claude C
 
 ### Is it safe to give an AI my Notion token?
 
-The token is stored locally in your MCP client's config file and only sent to the Notion API (over HTTPS). It never leaves your machine except to talk to `api.notion.com`. The server itself is open source — you can read every line. That said, a PAT has the same access your account does, so don't paste it into untrusted clients, and revoke it from Notion → Settings if a laptop is lost.
+The token is stored locally in your MCP client's config file and only sent to the Notion API (over HTTPS). It never leaves your machine except to talk to `api.notion.com`. The server itself is open source — you can read every line. That said, a PAT has the same access your account does, so don't paste it into untrusted clients, and revoke it at [notion.so/profile/integrations](https://www.notion.so/profile/integrations) → Personal access tokens if a laptop is lost.
 
 ### Does this work with self-hosted or local-only LLMs?
 
