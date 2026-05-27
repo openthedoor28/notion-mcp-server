@@ -6,7 +6,7 @@
     "notion-mcp-server": "build/index.js"
   },
   "scripts": {
-    "build": "tsc && shx chmod +x build/*.js",
+    "build": "shx rm -rf build && tsc && shx chmod +x build/*.js",
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "test": "vitest run",
@@ -29,12 +29,9 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@notionhq/client": "^5.22.0",
-    "mdast-util-to-string": "^4.0.0",
-    "remark": "^15.0.1",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "unified": "^11.0.5",
-    "unist-util-visit": "^5.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
