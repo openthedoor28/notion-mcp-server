@@ -84,7 +84,7 @@ A Personal Access Token (PAT) is like a key that lets the AI act as **you** insi
   "mcpServers": {
     "notion": {
       "command": "npx",
-      "args": ["-y", "github:awkoy/notion-mcp-server"],
+      "args": ["-y", "notion-mcp-server"],
       "env": {
         "NOTION_TOKEN": "ntn_paste_your_token_here"
       }
@@ -93,7 +93,7 @@ A Personal Access Token (PAT) is like a key that lets the AI act as **you** insi
 }
 ```
 
-> **What is this block?** It tells Claude Desktop how to launch the Notion connector. `npx` is a small tool that downloads and runs the connector automatically the first time — you don't install anything separately, it happens in the background (the first run may take 30–60 seconds while it builds). `env` is where your Notion token goes. Leave every quote mark and bracket exactly as shown; the only thing you change is the token.
+> **What is this block?** It tells Claude Desktop how to launch the Notion connector. `npx` is a small tool that downloads and runs the connector automatically the first time — you don't install anything separately, it happens in the background (the first run may take a few seconds). `env` is where your Notion token goes. Leave every quote mark and bracket exactly as shown; the only thing you change is the token.
 
 4. Replace `ntn_paste_your_token_here` with the token you copied in Step 1 — **leave the quotation marks around it**.
 5. **Save** the file (`Cmd+S` / `Ctrl+S`).
@@ -221,14 +221,12 @@ NOTION_TOKEN=secret_xxx NOTION_PAGE_ID=abc123... node build/index.js
 
 ### Claude Code / Cursor / Claude Desktop
 
-> ⚠️ **Heads-up while the v2 line stabilizes on npm.** The latest published `notion-mcp-server` on npm is **v1.x**; this repo is **v2.4**. Until v2 is published, the install snippets below pull from GitHub via `npx -y github:awkoy/notion-mcp-server` (npm builds from source on first run). Once v2 is on npm, you can swap that for plain `notion-mcp-server@^2`.
-
 **Claude Code:**
 
 ```bash
 claude mcp add notion -s user \
   -e NOTION_TOKEN=ntn_paste_your_token_here \
-  -- npx -y github:awkoy/notion-mcp-server
+  -- npx -y notion-mcp-server
 ```
 
 **Cursor** (`~/.cursor/mcp.json`) **or Claude Desktop** (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json` · Windows: `%APPDATA%\Claude\claude_desktop_config.json`):
@@ -238,7 +236,7 @@ claude mcp add notion -s user \
   "mcpServers": {
     "notion": {
       "command": "npx",
-      "args": ["-y", "github:awkoy/notion-mcp-server"],
+      "args": ["-y", "notion-mcp-server"],
       "env": {
         "NOTION_TOKEN": "ntn_paste_your_token_here"
       }
@@ -295,7 +293,7 @@ To find a page ID: open the page in Notion → **Share → Copy link**. The ID i
 claude mcp add notion -s user \
   -e NOTION_TOKEN=ntn_xxx \
   -e NOTION_PAGE_ID=abc123... \
-  -- npx -y github:awkoy/notion-mcp-server
+  -- npx -y notion-mcp-server
 ```
 
 ---
