@@ -16,6 +16,7 @@ function resolveRef(node: JsonSchema, defs: Defs): JsonSchema {
   if (typeof ref !== "string" || !defs) return node;
   const match = /^#\/\$defs\/(.+)$/.exec(ref);
   if (!match) return node;
+  if (!Object.hasOwn(defs, match[1])) return node;
   const resolved = defs[match[1]];
   if (typeof resolved !== "object" || resolved === null) return node;
   return resolved as JsonSchema;
@@ -35,8 +36,11 @@ export function sliceJsonSchema(
   for (const seg of path) {
     cur = resolveRef(cur, defs);
     if (typeof seg === "string") {
+      // Only follow own-property keys: a Zod error path comes from caller-supplied
+      // payload field names, so `__proto__` / `constructor` could otherwise walk
+      // the prototype chain when slicing.
       const props = asObject(cur.properties);
-      if (props && seg in props) {
+      if (props && Object.hasOwn(props, seg)) {
         const next = asObject(props[seg]);
         if (next) {
           cur = next;
@@ -49,7 +53,7 @@ export function sliceJsonSchema(
           .map((b) => resolveRef(b, defs))
           .find((b) => {
             const p = asObject(b.properties);
-            return p !== undefined && seg in p;
+            return p !== undefined && Object.hasOwn(p, seg);
           });
         if (matched) {
           const props = asObject(matched.properties);

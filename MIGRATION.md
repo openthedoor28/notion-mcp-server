@@ -65,10 +65,11 @@ When `data` contains exactly one recognized block-type key (e.g. `{ paragraph: {
 { "operation": "update_block",
   "payload": { "block_id": "...", "data": { "paragraph": { "rich_text": [...] } } } }
 
-// Still valid:
+// Still valid (explicit form):
 { "operation": "update_block",
-  "payload": { "block_id": "...", "type": "paragraph",
-               "data": { "paragraph": { "rich_text": [...] } } } }
+  "payload": { "block_id": "...",
+               "data": { "type": "paragraph",
+                         "paragraph": { "rich_text": [...] } } } }
 ```
 
 ### `upload_file` mode defaults to `"single"`

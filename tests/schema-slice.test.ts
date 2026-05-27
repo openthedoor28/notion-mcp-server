@@ -26,6 +26,19 @@ describe("schema-slice", () => {
     });
   });
 
+  it("does not follow __proto__ keys when slicing (prototype-safety)", () => {
+    const root = {
+      type: "object",
+      properties: {
+        page_id: { type: "string" },
+      },
+    };
+    // A crafted Zod error path of ["__proto__"] should NOT walk up the chain.
+    const sliced = sliceJsonSchema(root, ["__proto__"]);
+    // Falls through to returning the root unchanged.
+    expect(sliced).toEqual(root);
+  });
+
   it("summarizes large unions into one-line-per-branch discriminator tags", () => {
     const schema = {
       oneOf: [
