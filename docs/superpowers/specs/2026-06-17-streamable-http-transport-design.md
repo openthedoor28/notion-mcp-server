@@ -1,7 +1,7 @@
 # Streamable HTTP transport — design
 
 **Date:** 2026-06-17
-**Status:** approved (pending spec review)
+**Status:** implemented in v2.7.0
 **Target release:** v2.7.0 (minor — additive feature, stdio default unchanged)
 
 ## Goal

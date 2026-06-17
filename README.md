@@ -26,6 +26,7 @@ An agent-first **Notion MCP server** (Model Context Protocol) that connects Clau
   - [Claude Code / Cursor / Claude Desktop](#claude-code--cursor--claude-desktop)
   - [Docker / Podman / OrbStack](#docker--podman--orbstack)
   - [Optional `NOTION_PAGE_ID`](#optional-notion_page_id)
+- [Remote / HTTP transport](#-remote--http-transport)
 - [Features: what this Notion MCP server does](#-features-what-this-notion-mcp-server-does)
 - [MCP tools for Notion (`notion_execute` & `notion_describe`)](#-mcp-tools-for-notion-notion_execute--notion_describe)
   - [`notion_execute`](#notion_execute)
@@ -384,6 +385,49 @@ claude mcp add notion -s user \
   -e NOTION_TOKEN=ntn_xxx \
   -e NOTION_PAGE_ID=abc123... \
   -- npx -y notion-mcp-server
+```
+
+---
+
+## 🌐 Remote / HTTP transport
+
+By default the server speaks **stdio** (the local connector path above). To run it as a remote/hosted endpoint — for web clients, networked agents, or a shared deployment — set `MCP_TRANSPORT=http`:
+
+```bash
+MCP_TRANSPORT=http PORT=3000 NOTION_TOKEN=ntn_xxx npx -y notion-mcp-server
+# -> notion-mcp-server vX.Y.Z running on http://127.0.0.1:3000/mcp
+```
+
+It serves the MCP **Streamable HTTP** protocol at `POST/GET/DELETE /mcp` (stateful sessions via the `mcp-session-id` header) plus an unauthenticated `GET /health`. It's **single-tenant** — every request uses the one `NOTION_TOKEN` the process was started with.
+
+### Configuration
+
+| env | default | meaning |
+| --- | --- | --- |
+| `MCP_TRANSPORT` | `stdio` | set to `http` to enable the HTTP transport |
+| `PORT` | `3000` | listen port (`0` = OS-assigned) |
+| `HOST` | `127.0.0.1` | bind address. Loopback by default; set `0.0.0.0` to expose externally (do this only with `MCP_AUTH_TOKEN`) |
+| `MCP_AUTH_TOKEN` | — | when set, every `/mcp` request must send `Authorization: Bearer <token>` |
+| `MCP_ALLOWED_HOSTS` | localhost + bound host | comma-list for DNS-rebinding `Host` allowlist |
+| `MCP_ALLOWED_ORIGINS` | localhost origins | comma-list for browser `Origin` allowlist |
+
+> ⚠️ **Single-tenant means whoever reaches `/mcp` acts as your `NOTION_TOKEN`.** On loopback (the default) that's just local processes. Before binding a non-loopback `HOST`, set `MCP_AUTH_TOKEN` (the server logs a warning if you don't) and/or put it behind an authenticating reverse proxy.
+
+### Try it
+
+```bash
+# health check
+curl http://127.0.0.1:3000/health
+# -> {"status":"healthy","transport":"http","port":3000}
+
+# point the MCP Inspector at it
+npx @modelcontextprotocol/inspector --transport http --server-url http://127.0.0.1:3000/mcp
+```
+
+In Docker, set the env and publish the port:
+
+```bash
+docker run --rm -e NOTION_TOKEN=ntn_xxx -e MCP_TRANSPORT=http -p 3000:3000 ghcr.io/awkoy/notion-mcp-server
 ```
 
 ---

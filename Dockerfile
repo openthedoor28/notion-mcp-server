@@ -44,4 +44,8 @@ COPY --from=builder /app/build ./build
 
 USER node
 
+# Documentation only (does not publish the port). The default transport is stdio;
+# set MCP_TRANSPORT=http and publish this port to run the HTTP transport.
+EXPOSE 3000
+
 ENTRYPOINT ["node", "build/index.js"]

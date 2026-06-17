@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.7.0] — 2026-06-17
+
+### Added
+
+- **Streamable HTTP transport.** The server can now run as a remote/hosted endpoint in addition to stdio. Set `MCP_TRANSPORT=http` (default stays `stdio`) to serve the MCP Streamable HTTP protocol at `POST/GET/DELETE /mcp` plus an unauthenticated `GET /health`. Stateful sessions (one server instance per `mcp-session-id`), built on Node's `http` module (no new dependencies). Single-tenant: it uses the same `NOTION_TOKEN`. Config via env: `PORT` (default `3000`), `HOST` (default `127.0.0.1`), optional `MCP_AUTH_TOKEN` (when set, `Authorization: Bearer <token>` is required on `/mcp`), and `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` for DNS-rebinding protection (localhost defaults). See [README → Remote / HTTP transport](./README.md#-remote--http-transport).
 
 ### Security
 

@@ -1,15 +1,14 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { server } from "../server/index.js";
 import { readNotionResource } from "./resources.js";
-import { initOperations, getOperation } from "../operations/index.js";
+import { getOperation } from "../operations/index.js";
 import {
   isOperationAllowed,
   operationNotAllowedError,
   enabledOperationNames,
   enabledOperations,
-  accessSummary,
 } from "../operations/access.js";
 import { dispatch } from "../dispatch/index.js";
 import { emitJsonSchema } from "../schema/emit.js";
@@ -56,9 +55,7 @@ Most responses are slimmed by default. Pass verbose:true inside payload (single)
 
 const DESCRIBE_DESCRIPTION = `Return the JSON Schema and a working example for one operation. Use this BEFORE notion_execute when the payload shape is non-trivial (query filters, structured block trees, database property definitions). For simple ops, just call notion_execute — its errors carry the schema.`;
 
-export async function registerAllTools(): Promise<void> {
-  await initOperations();
-
+export function registerAllTools(server: McpServer): void {
   server.registerTool(
     "notion_execute",
     {
@@ -181,12 +178,7 @@ export async function registerAllTools(): Promise<void> {
     }
   );
 
-  registerAllPrompts();
-
-  const s = accessSummary();
-  console.error(
-    `Operation access: ${s.enabled}/${s.total} enabled (allow=${s.allow}; block=${s.block}${s.readOnly ? "; read-only" : ""})`
-  );
+  registerAllPrompts(server);
 }
 
 function renderOperationsIndex(): string {
