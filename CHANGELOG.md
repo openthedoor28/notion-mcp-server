@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] — 2026-06-17
+
+### Security
+
+- **Refreshed transitive `hono` and `vite` to their patched releases.** `hono` `4.12.23 → 4.12.25` (clears several advisories incl. GHSA-88fw-hqm2-52qc) and `vite` `8.0.14 → 8.0.16` (GHSA-fx2h-pf6j-xcff). Lockfile-only change — no direct dependency or runtime behavior changed. `hono` arrives transitively via `@modelcontextprotocol/sdk` and is only exercised by HTTP transports (this server is stdio-only); `vite` is a dev-only test-runner dependency and is not shipped in the published package. `npm audit` is now clean.
+
 ## [2.6.0] — 2026-06-17
 
 ### Added
