@@ -15,23 +15,35 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24" # ships with npm >= 11.5 (required for Trusted Publishing)
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install dependencies
-        # 'npm install' (not 'npm ci') because npm 11+ strict mode rejects
-        # the macOS-generated lockfile for missing Linux-only optional native
-        # deps (e.g. @emnapi/core via @rolldown/binding-wasm32-wasi). Running
-        # 'npm install' on each platform prunes those entries; maintaining a
-        # cross-platform lockfile would require all maintainers to dev inside
-        # Linux containers. Lockfile is still respected — just non-strictly.
-        run: npm install --no-audit --no-fund
+      - name: Ensure npm supports the release-age cooldown
+        # min-release-age in .npmrc is silently ignored by npm < 11.10.0. setup-node
+        # may ship an older npm, which would let `npm install` below pull a
+        # freshly-published (possibly poisoned) version that a dev machine running
+        # current npm would refuse. Upgrade so the cooldown is actually enforced.
+        run: npm install -g npm@latest
 
+      - name: Install dependencies
+        # --ignore-scripts blocks dependency lifecycle scripts (pre/post-install),
+        # the primary npm malware vector (Shai-Hulud, TrapDoor). Our runtime deps
+        # have no native build step, so nothing legitimate needs them here; our own
+        # build runs explicitly via `npm publish` -> `prepare` below.
+        #
+        # 'npm install' (not 'npm ci') because npm 11+ strict mode rejects the
+        # macOS-generated lockfile for missing Linux-only optional native deps
+        # (e.g. @emnapi/core via @rolldown/binding-wasm32-wasi). Lockfile is still
+        # respected — just non-strictly — and the .npmrc cooldown gates resolution.
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Run tests
         run: npm test

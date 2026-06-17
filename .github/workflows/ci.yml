@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+# Least privilege: CI only needs to read the repo.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Ensure npm supports the release-age cooldown
+        # min-release-age in .npmrc is silently ignored by npm < 11.10.0.
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        # --ignore-scripts blocks dependency lifecycle scripts, the primary npm
+        # malware vector. Nothing legitimate in our tree needs install scripts.
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Audit production dependencies
+        # Fail the build on a high/critical advisory in a shipped (runtime) dep.
+        # Dev-only advisories are tracked by Dependabot but don't block PRs.
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Typecheck and build
+        run: npm run build
+
+      - name: Run tests
+        run: npm test

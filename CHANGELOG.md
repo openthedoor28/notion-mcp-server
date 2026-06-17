@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Supply-chain hardening of the build & release pipeline** (no change to the published package's runtime code). Following the 2025–2026 npm attack wave (Shai-Hulud worm, TrapDoor, Miasma/`binding.gyp`): the npm publish job now installs with `--ignore-scripts` (blocking dependency lifecycle scripts, the primary malware vector) and upgrades npm so the existing `min-release-age=7` cooldown is actually enforced in CI; every GitHub Action is pinned to a full commit SHA (not a mutable tag); the Docker base image is pinned to its multi-arch digest; `save-exact=true` prevents version-range drift; a new `CI` workflow gates every PR/push on `npm audit --omit=dev --audit-level=high`, build, and tests; and `dependabot.yml` keeps npm deps (with a matching 7-day cooldown), Actions SHAs, and the base-image digest current via reviewed PRs.
+
 ## [2.6.1] — 2026-06-17
 
 ### Security
