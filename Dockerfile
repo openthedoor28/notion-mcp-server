@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM node:20-slim AS builder
 
 WORKDIR /app
@@ -15,16 +17,12 @@ RUN npm link
 
 FROM node:20-slim
 
-COPY scripts/notion-openapi.json /usr/local/scripts/
-
 COPY --from=builder /usr/local/lib/node_modules/@notionhq/notion-mcp-server /usr/local/lib/node_modules/@notionhq/notion-mcp-server
 
 COPY --from=builder /usr/local/bin/notion-mcp-server /usr/local/bin/notion-mcp-server
 
 
-ENV MCP_TRANSPORT=http
-ENV HOST=0.0.0.0
-ENV PORT=3000
+ENV OPENAPI_MCP_HEADERS="{}"
 
 
-ENTRYPOINT ["notion-mcp-server"]
+ENTRYPOINT ["notion-mcp-server","--transport","http","--host","0.0.0.0"]
